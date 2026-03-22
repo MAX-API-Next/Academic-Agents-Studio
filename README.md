@@ -37,6 +37,18 @@
 
 ---
 
+> 🐾 **免费体验“OpenClaw版学术智能体服务”**  
+> 我们全新推出基于 **OpenClaw** 的学术智能体服务，已接入**飞书平台**，支持自然语言对话、实时消息通知、团队协作与文件传输。现在加入飞书群聊，即可**零门槛免费体验**，让24小时待命的科研助手助您高效完成文献调研、数据分析等任务。  
+> 📖 **了解更多**：[《快来一起云上免费养一只OpenClaw版学术智能体！》](https://mp.weixin.qq.com/s/XszTRMIHqf9YqKUI9QKb4A) <br>
+> 👇 **立即加入飞书群聊**：
+
+<div align="center">
+
+<img src="./docs/feishu_openclaw_academicagent.jpg" width="200" alt="飞书群二维码"/>
+
+</div>
+
+
 ## 🎯 项目简介
 
 **Academic Agents Studio** 是一个面向学术研究人员的新一代学术智能体平台，基于 <a href="https://github.com/QwenLM/Qwen-Agent">Qwen-Agent</a> 框架和 <a href="https://github.com/modelcontextprotocol">MCP (Model Context Protocol)</a> 协议，在<a href="https://github.com/binary-husky/gpt_academic">中科院学术GPT</a>基础平台上构建。专注于为学术研究人员、教育工作者和学生提供全方位的AI智能体辅助服务，通过一站式集成多种学术专用智能体工具，全面提升研究人员的学术研究效率和质量。
