@@ -34,7 +34,7 @@ else:
 
 # [step 3]>> 模型选择是 (注意: LLM_MODEL是默认选中的模型, 它*必须*被包含在AVAIL_LLM_MODELS列表中 )
 LLM_MODEL = "gpt-5-mini" # 可选 ↓↓↓
-AVAIL_LLM_MODELS = ["o1-mini","o1", "o3-mini", "o3"
+AVAIL_LLM_MODELS = ["o1-mini","o1", "o3-mini", "o3",
                     "gpt-4o", "gpt-4o-mini", "gpt-4.1", "gpt-4.1-mini", "gpt-5", "gpt-5-chat", "gpt-5-mini",
                     "gpt-4", "gpt-4-32k", "azure-gpt-4", "glm-4", "glm-4v", "glm-3-turbo",
                     "aioagi-claude-sonnet-4", "aioagi-claude-opus-4", "aioagi-claude-3-7-sonnet", "aioagi-claude-3-5-sonnet", "aioagi-claude-3-5-haiku","aioagi-claude-sonnet-4-5",

@@ -1,6 +1,7 @@
 import importlib
 import time
 import os
+import ast
 from functools import lru_cache
 from shared_utils.colorful import log亮红, log亮绿, log亮蓝
 
@@ -44,12 +45,12 @@ def read_env_variable(arg, default_value):
         elif isinstance(default_value, str):
             r = env_arg.strip()
         elif isinstance(default_value, dict):
-            r = eval(env_arg)
+            r = ast.literal_eval(env_arg)
         elif isinstance(default_value, list):
-            r = eval(env_arg)
+            r = ast.literal_eval(env_arg)
         elif default_value is None:
             assert arg == "proxies"
-            r = eval(env_arg)
+            r = ast.literal_eval(env_arg)
         else:
             log亮红(f"[ENV_VAR] 环境变量{arg}不支持通过环境变量设置! ")
             raise KeyError
