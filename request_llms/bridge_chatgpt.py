@@ -23,6 +23,7 @@ from loguru import logger
 from toolbox import get_conf, update_ui, is_any_api_key, select_api_key, what_keys, clip_history
 from toolbox import trimmed_format_exc, is_the_upload_folder, read_one_api_model_name, log_chat
 from toolbox import ChatBotWithCookies, have_any_recent_upload_image_files, encode_image
+from .provider_compat import apply_openai_sampling_compatibility
 proxies, WHEN_TO_USE_PROXY, TIMEOUT_SECONDS, MAX_RETRY, API_ORG, AZURE_CFG_ARRAY = \
     get_conf('proxies', 'WHEN_TO_USE_PROXY', 'TIMEOUT_SECONDS', 'MAX_RETRY', 'API_ORG', 'AZURE_CFG_ARRAY')
 
@@ -618,8 +619,6 @@ def generate_payload(inputs:str, llm_kwargs:dict, history:list, system_prompt:st
         "n": 1,
         "stream": stream,
     }
-    openai_force_temperature_one = model_info[llm_kwargs['llm_model']].get('openai_force_temperature_one', False)
-    if openai_force_temperature_one:
-        payload.pop('temperature')
+    model_config = model_info[llm_kwargs['llm_model']]
+    apply_openai_sampling_compatibility(payload, model_config)
     return headers,payload
-

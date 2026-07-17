@@ -34,7 +34,17 @@ else:
 
 # [step 3]>> 模型选择是 (注意: LLM_MODEL是默认选中的模型, 它*必须*被包含在AVAIL_LLM_MODELS列表中 )
 LLM_MODEL = "gpt-5-mini" # 可选 ↓↓↓
-AVAIL_LLM_MODELS = ["o1-mini","o1", "o3-mini", "o3",
+AVAIL_LLM_MODELS = [
+                    # 2026 年当前直连模型
+                    "gpt-5.6", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna",
+                    "claude-fable-5", "claude-opus-4-8", "claude-sonnet-5", "claude-haiku-4-5",
+                    "gemini-3.5-flash", "gemini-3.1-flash-lite", "gemini-3.1-pro-preview",
+                    "kimi-k3", "kimi-k2.7-code", "kimi-k2.7-code-highspeed", "kimi-k2.6",
+                    "glm-5.2", "glm-5.1", "glm-5-turbo", "glm-4.7-flash",
+                    "qwen3.7-max", "qwen3.7-plus", "qwen3.6-flash",
+                    "grok-4.5", "grok-4.3",
+                    # 保留原有模型，兼容已有部署和中转服务
+                    "o1-mini","o1", "o3-mini", "o3",
                     "gpt-4o", "gpt-4o-mini", "gpt-4.1", "gpt-4.1-mini", "gpt-5", "gpt-5-chat", "gpt-5-mini",
                     "gpt-4", "gpt-4-32k", "azure-gpt-4", "glm-4", "glm-4v", "glm-3-turbo",
                     "aioagi-claude-sonnet-4", "aioagi-claude-opus-4", "aioagi-claude-3-7-sonnet", "aioagi-claude-3-5-sonnet", "aioagi-claude-3-5-haiku","aioagi-claude-sonnet-4-5",
@@ -47,15 +57,14 @@ AVAIL_LLM_MODELS = ["o1-mini","o1", "o3-mini", "o3",
 EMBEDDING_MODEL = "text-embedding-3-small"
 
 # --- --- --- ---
-# P.S. 其他可用的模型还包括
+# P.S. 其他兼容模型和特殊接入方式还包括
 # AVAIL_LLM_MODELS = [
 #   "glm-4-0520", "glm-4-air", "glm-4-airx", "glm-4-flash",
 #   "qianfan", "deepseekcoder",
 #   "spark", "sparkv2", "sparkv3", "sparkv3.5", "sparkv4",
 #   "qwen-turbo", "qwen-plus", "qwen-local",
-#   "moonshot-v1-128k", "moonshot-v1-32k", "moonshot-v1-8k",
+#   "moonshot-v1-128k", "moonshot-v1-32k", "moonshot-v1-8k",  # 旧账号兼容，计划于 2026-08-31 下线
 #   "gpt-3.5-turbo-0613", "gpt-3.5-turbo-16k-0613", "gpt-3.5-turbo-0125", "gpt-4o-2024-05-13"
-#   "claude-3-haiku-20240307","claude-3-sonnet-20240229","claude-3-opus-20240229", "claude-2.1", "claude-instant-1.2",
 #   "moss", "llama2", "chatglm_onnx", "internlm", "jittorllms_pangualpha", "jittorllms_llama",
 #   "deepseek-chat" ,"deepseek-coder",
 #   "gemini-1.5-flash",
@@ -153,7 +162,7 @@ DEFAULT_FN_GROUPS = ['对话', '编程', '学术', '智能体']
 
 
 # 定义界面上“询问多个GPT模型”插件应该使用哪些模型，请从AVAIL_LLM_MODELS中选择，并在不同模型之间用`&`间隔，例如"gpt-3.5-turbo&chatglm3&azure-gpt-4"
-MULTI_QUERY_LLM_MODELS = "gpt-5-chat&claude-sonnet-4-20250514"
+MULTI_QUERY_LLM_MODELS = "gpt-5.6-terra&claude-sonnet-5"
 
 
 # 选择本地模型变体（只有当AVAIL_LLM_MODELS包含了对应本地模型时，才会起作用）
@@ -258,6 +267,10 @@ ANTHROPIC_API_KEY = ""
 
 # 月之暗面 API KEY
 MOONSHOT_API_KEY = ""
+
+
+# 阿里云百炼（通义千问）API KEY
+DASHSCOPE_API_KEY = ""
 
 
 # 零一万物(Yi Model) API KEY
@@ -368,7 +381,7 @@ AUTO_CONTEXT_MAX_CLIP_RATIO = [0.80, 0.60, 0.45, 0.25, 0.20, 0.18, 0.16, 0.14, 0
 
 在线大模型配置关联关系示意图
 │
-├── "gpt-3.5-turbo" 等openai模型
+├── "gpt-5.6", "gpt-5.6-terra" 等 OpenAI 模型
 │   ├── API_KEY
 │   ├── CUSTOM_API_KEY_PATTERN（不常用）
 │   ├── API_ORG（不常用）
@@ -389,7 +402,7 @@ AUTO_CONTEXT_MAX_CLIP_RATIO = [0.80, 0.60, 0.45, 0.25, 0.20, 0.18, 0.16, 0.14, 0
 │   ├── XFYUN_API_SECRET
 │   └── XFYUN_API_KEY
 │
-├── "claude-3-opus-20240229" 等claude模型
+├── "claude-fable-5", "claude-sonnet-5" 等 Claude 模型
 │   └── ANTHROPIC_API_KEY
 │
 ├── "stack-claude"
@@ -401,17 +414,23 @@ AUTO_CONTEXT_MAX_CLIP_RATIO = [0.80, 0.60, 0.45, 0.25, 0.20, 0.18, 0.16, 0.14, 0
 │   ├── BAIDU_CLOUD_API_KEY
 │   └── BAIDU_CLOUD_SECRET_KEY
 │
-├── "glm-4", "glm-3-turbo", "zhipuai" 智谱AI大模型
+├── "glm-5.2", "glm-5.1" 等智谱 AI 大模型
 │   └── ZHIPUAI_API_KEY
 │
 ├── "yi-34b-chat-0205", "yi-34b-chat-200k" 等零一万物(Yi Model)大模型
 │   └── YIMODEL_API_KEY
 │
-├── "qwen-turbo" 等通义千问大模型
+├── "qwen3.7-max", "qwen3.7-plus" 等通义千问大模型
 │   └──  DASHSCOPE_API_KEY
 │
-├── "Gemini"
+├── "gemini-3.5-flash" 等 Gemini 模型
 │   └──  GEMINI_API_KEY
+│
+├── "kimi-k3", "kimi-k2.7-code" 等 Kimi 模型
+│   └──  MOONSHOT_API_KEY
+│
+├── "grok-4.5", "grok-4.3" 等 Grok 模型
+│   └──  GROK_API_KEY
 │
 └── "aioagi-...(max_token=...)" 用一种更方便的方式接入one-api多模型管理界面
     ├── AVAIL_LLM_MODELS

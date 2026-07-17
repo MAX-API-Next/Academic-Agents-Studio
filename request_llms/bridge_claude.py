@@ -16,9 +16,17 @@ import json
 import requests
 from loguru import logger
 from toolbox import get_conf, update_ui, trimmed_format_exc, encode_image, every_image_file_in_path, log_chat
+from .current_model_registry import current_model_names, omits_sampling_parameters
+from .provider_compat import extract_anthropic_text_delta
 
 picture_system_prompt = "\n当回复图像时,必须说明正在回复哪张图像。所有图像仅在最后一个问题中提供,即使它们在历史记录中被提及。请使用'这是第X张图像:'的格式来指明您正在描述的是哪张图像。"
-Claude_3_Models = ["claude-3-haiku-20240307", "claude-3-sonnet-20240229", "claude-3-opus-20240229", "claude-3-5-sonnet-20240620"]
+Claude_3_Models = [
+    "claude-3-haiku-20240307",
+    "claude-3-sonnet-20240229",
+    "claude-3-opus-20240229",
+    "claude-3-5-sonnet-20240620",
+    *current_model_names("claude"),
+]
 
 # config_private.py放自己的秘密如API和代理网址
 # 读取时首先看是否存在私密的config_private配置文件（不受git管控），如果有，则覆盖原config文件
@@ -120,12 +128,13 @@ def predict_no_ui_long_connection(inputs, llm_kwargs, history=[], sys_prompt="",
                     # logger.info(f'[response] {result}')
                     break
                 else:
-                    if chunkjson and chunkjson['type'] == 'content_block_delta':
-                        result += chunkjson['delta']['text']
+                    text_delta = extract_anthropic_text_delta(chunkjson)
+                    if text_delta:
+                        result += text_delta
                         if observe_window is not None:
                             # 观测窗，把已经获取的数据显示出去
                             if len(observe_window) >= 1:
-                                observe_window[0] += chunkjson['delta']['text']
+                                observe_window[0] += text_delta
                             # 看门狗，如果超过期限没有喂狗，则终止
                             if len(observe_window) >= 2:
                                 if (time.time()-observe_window[1]) > watch_dog_patience:
@@ -220,8 +229,9 @@ def predict(inputs, llm_kwargs, plugin_kwargs, chatbot, history=[], system_promp
                     # logger.info(f'[response] {gpt_replying_buffer}')
                     break
                 else:
-                    if chunkjson and chunkjson['type'] == 'content_block_delta':
-                        gpt_replying_buffer += chunkjson['delta']['text']
+                    text_delta = extract_anthropic_text_delta(chunkjson)
+                    if text_delta:
+                        gpt_replying_buffer += text_delta
                         history[-1] = gpt_replying_buffer
                         chatbot[-1] = (history[-2], history[-1])
                         yield from update_ui(chatbot=chatbot, history=history, msg='正常') # 刷新界面
@@ -302,8 +312,9 @@ def generate_payload(inputs, llm_kwargs, history, system_prompt, image_paths):
         'model': llm_kwargs['llm_model'],
         'max_tokens': 4096,
         'messages': messages,
-        'temperature': llm_kwargs['temperature'],
         'stream': True,
         'system': system_prompt
     }
+    if not omits_sampling_parameters("claude", llm_kwargs['llm_model']):
+        payload['temperature'] = llm_kwargs['temperature']
     return headers, payload
