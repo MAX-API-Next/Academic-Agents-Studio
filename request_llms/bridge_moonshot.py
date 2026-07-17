@@ -10,6 +10,7 @@ from toolbox import get_conf, update_ui, log_chat
 from toolbox import ChatBotWithCookies
 
 import requests
+from .current_model_registry import omits_sampling_parameters
 
 
 class MoonShotInit:
@@ -91,11 +92,14 @@ class MoonShotInit:
         payload = {
             "model": self.llm_model,
             "messages": messages,
-            "temperature": llm_kwargs.get('temperature', 0.3),  # 1.0,
-            "top_p": llm_kwargs.get('top_p', 1.0),  # 1.0,
-            "n": llm_kwargs.get('n_choices', 1),
             "stream": stream
         }
+        if not omits_sampling_parameters("kimi", self.llm_model):
+            payload.update({
+                "temperature": llm_kwargs.get('temperature', 0.3),
+                "top_p": llm_kwargs.get('top_p', 1.0),
+                "n": llm_kwargs.get('n_choices', 1),
+            })
         return payload, header
 
     def generate_messages(self, inputs, llm_kwargs, history, system_prompt, stream):

@@ -45,6 +45,7 @@ from .bridge_cohere import predict as cohere_ui
 from .bridge_cohere import predict_no_ui_long_connection as cohere_noui
 
 from .oai_std_model_template import get_predict_function
+from .current_model_registry import CURRENT_MODEL_SPECS, current_model_names
 
 colors = ['#FF00FF', '#00FFFF', '#FF0000', '#990099', '#009999', '#990044']
 
@@ -110,6 +111,31 @@ tokenizer_gpt35 = LazyloadTiktoken("gpt-3.5-turbo")
 tokenizer_gpt4 = LazyloadTiktoken("gpt-4")
 get_token_num_gpt35 = lambda txt: len(tokenizer_gpt35.encode(txt, disallowed_special=()))
 get_token_num_gpt4 = lambda txt: len(tokenizer_gpt4.encode(txt, disallowed_special=()))
+
+
+def _build_current_model_info(
+    spec, fn_with_ui, fn_without_ui, endpoint, tokenizer, token_cnt,
+    can_multi_thread=None,
+):
+    info = {
+        "fn_with_ui": fn_with_ui,
+        "fn_without_ui": fn_without_ui,
+        "endpoint": endpoint,
+        "max_token": spec["max_token"],
+        "tokenizer": tokenizer,
+        "token_cnt": token_cnt,
+    }
+    if can_multi_thread is not None:
+        info["can_multi_thread"] = can_multi_thread
+    for attribute in (
+        "max_output_token",
+        "has_multimodal_capacity",
+        "enable_reasoning",
+        "omit_sampling_parameters",
+    ):
+        if attribute in spec:
+            info[attribute] = spec[attribute]
+    return info
 
 
 # 开始初始化模型
@@ -645,6 +671,25 @@ model_info = {
     },
 
 }
+
+for model_name, spec in CURRENT_MODEL_SPECS["openai"].items():
+    model_info[model_name] = _build_current_model_info(
+        spec, chatgpt_ui, chatgpt_noui, openai_endpoint,
+        tokenizer_gpt4, get_token_num_gpt4,
+    )
+
+for model_name, spec in CURRENT_MODEL_SPECS["gemini"].items():
+    model_info[model_name] = _build_current_model_info(
+        spec, genai_ui, genai_noui, gemini_endpoint,
+        tokenizer_gpt35, get_token_num_gpt35,
+    )
+
+for model_name, spec in CURRENT_MODEL_SPECS["glm"].items():
+    model_info[model_name] = _build_current_model_info(
+        spec, zhipu_ui, zhipu_noui, None,
+        tokenizer_gpt35, get_token_num_gpt35,
+    )
+
 # -=-=-=-=-=-=- 月之暗面 -=-=-=-=-=-=-
 from request_llms.bridge_moonshot import predict as moonshot_ui
 from request_llms.bridge_moonshot import predict_no_ui_long_connection as moonshot_no_ui
@@ -677,6 +722,11 @@ model_info.update({
         "token_cnt": get_token_num_gpt35,
     }
 })
+for model_name, spec in CURRENT_MODEL_SPECS["kimi"].items():
+    model_info[model_name] = _build_current_model_info(
+        spec, moonshot_ui, moonshot_no_ui, None,
+        tokenizer_gpt35, get_token_num_gpt35, can_multi_thread=True,
+    )
 # -=-=-=-=-=-=- api2d 对齐支持 -=-=-=-=-=-=-
 for model in AVAIL_LLM_MODELS:
     if model.startswith('api2d-') and (model.replace('api2d-','') in model_info.keys()):
@@ -705,7 +755,8 @@ claude_models = ["claude-instant-1.2",
                  "claude-opus-4-1",
                  "claude-sonnet-4",
                  "claude-sonnet-4-5",
-                 "claude-sonnet-4-5-thinking"]
+                 "claude-sonnet-4-5-thinking",
+                 *current_model_names("claude")]
 if any(item in claude_models for item in AVAIL_LLM_MODELS):
     from .bridge_claude import predict_no_ui_long_connection as claude_noui
     from .bridge_claude import predict as claude_ui
@@ -839,6 +890,11 @@ if any(item in claude_models for item in AVAIL_LLM_MODELS):
             "token_cnt": get_token_num_gpt35,
         },
     })
+    for model_name, spec in CURRENT_MODEL_SPECS["claude"].items():
+        model_info[model_name] = _build_current_model_info(
+            spec, claude_ui, claude_noui, claude_endpoint,
+            tokenizer_gpt35, get_token_num_gpt35,
+        )
 if "jittorllms_rwkv" in AVAIL_LLM_MODELS:
     from .bridge_jittorllms_rwkv import predict_no_ui_long_connection as rwkv_noui
     from .bridge_jittorllms_rwkv import predict as rwkv_ui
@@ -991,7 +1047,8 @@ if "qwen-local" in AVAIL_LLM_MODELS:
 # -=-=-=-=-=-=- 阿里云百炼（通义）-在线模型 -=-=-=-=-=-=-
 qwen_models = ["qwen-max-latest", "qwen-max-2025-01-25","qwen-max","qwen-turbo","qwen-plus",
                "dashscope-deepseek-r1","dashscope-deepseek-v3",
-               "dashscope-qwen3-14b", "dashscope-qwen3-235b-a22b", "dashscope-qwen3-qwen3-32b",
+               "dashscope-qwen3-14b", "dashscope-qwen3-235b-a22b", "dashscope-qwen3-32b",
+               *current_model_names("qwen"),
                ]
 if any(item in qwen_models for item in AVAIL_LLM_MODELS):
     try:
@@ -1091,6 +1148,11 @@ if any(item in qwen_models for item in AVAIL_LLM_MODELS):
                 "token_cnt": get_token_num_gpt35,
             }
         })
+        for model_name, spec in CURRENT_MODEL_SPECS["qwen"].items():
+            model_info[model_name] = _build_current_model_info(
+                spec, qwen_ui, qwen_noui, None,
+                tokenizer_gpt35, get_token_num_gpt35, can_multi_thread=True,
+            )
     except:
         logger.error(trimmed_format_exc())
 
@@ -1177,17 +1239,17 @@ if any(item in yi_models for item in AVAIL_LLM_MODELS):
 
 
 # -=-=-=-=-=-=- Grok model from x.ai -=-=-=-=-=-=-
-grok_models = ["grok-beta"]
+grok_models = ["grok-beta", *current_model_names("grok")]
 if any(item in grok_models for item in AVAIL_LLM_MODELS):
     try:
-        grok_beta_128k_noui, grok_beta_128k_ui = get_predict_function(
+        grok_noui, grok_ui = get_predict_function(
             api_key_conf_name="GROK_API_KEY", max_output_token=8192, disable_proxy=False
         )
 
         model_info.update({
             "grok-beta": {
-                "fn_with_ui": grok_beta_128k_ui,
-                "fn_without_ui": grok_beta_128k_noui,
+                "fn_with_ui": grok_ui,
+                "fn_without_ui": grok_noui,
                 "can_multi_thread": True,
                 "endpoint": grok_model_endpoint,
                 "max_token": 128000,
@@ -1196,6 +1258,11 @@ if any(item in grok_models for item in AVAIL_LLM_MODELS):
             },
 
         })
+        for model_name, spec in CURRENT_MODEL_SPECS["grok"].items():
+            model_info[model_name] = _build_current_model_info(
+                spec, grok_ui, grok_noui, grok_model_endpoint,
+                tokenizer_gpt35, get_token_num_gpt35, can_multi_thread=True,
+            )
     except:
         logger.error(trimmed_format_exc())
 
