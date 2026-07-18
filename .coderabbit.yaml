@@ -1,0 +1,71 @@
+# yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
+
+language: zh-CN
+tone_instructions: "Keep reviews concise. Prioritize correctness, security, compatibility, and missing tests over style preferences."
+early_access: false
+
+reviews:
+  profile: chill
+  request_changes_workflow: false
+  high_level_summary: true
+  high_level_summary_in_walkthrough: true
+  review_status: true
+  review_details: true
+  commit_status: true
+  fail_commit_status: false
+  poem: false
+
+  auto_review:
+    enabled: true
+    auto_incremental_review: true
+    drafts: false
+
+  path_filters:
+    - "!docs/images/**"
+    - "!**/*.whl"
+    - "!**/*.png"
+    - "!**/*.jpg"
+    - "!**/*.gif"
+    - "!gpt_log/**"
+    - "!private_upload/**"
+
+  path_instructions:
+    - path: "request_llms/**/*.py"
+      instructions: |
+        Focus on model IDs, API endpoints, key configuration, streaming response
+        parsing, token limits, request compatibility, legacy aliases, and error
+        handling. Require focused tests for new or changed model integrations.
+
+    - path: "{config.py,shared_utils/config_loader.py,mcp_servers/**}"
+      instructions: |
+        Preserve configuration precedence and type compatibility. Reject unsafe
+        evaluation, credential leaks, untrusted redirects, weak user isolation,
+        and accidental disclosure of prompts or uploaded research to MCP services.
+
+    - path: "tests/**/*.py"
+      instructions: |
+        Tests must be deterministic and run without live provider credentials.
+        Model changes should cover registration, payload construction, streaming
+        parsing, error paths, and compatibility aliases where applicable.
+
+    - path: "{Dockerfile,docker-compose.yml,requirements.txt}"
+      instructions: |
+        Check reproducible dependencies, secret exposure in images, port and
+        authentication defaults, persistent data paths, valid YAML, and safe
+        production deployment behavior.
+
+  tools:
+    ruff:
+      enabled: true
+    yamllint:
+      enabled: true
+    hadolint:
+      enabled: true
+    gitleaks:
+      enabled: true
+    markdownlint:
+      enabled: false
+
+chat:
+  art: false
+  auto_reply: true
