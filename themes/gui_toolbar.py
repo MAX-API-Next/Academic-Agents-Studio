@@ -1,5 +1,6 @@
 import gradio as gr
 from toolbox import get_conf
+from request_llms.model_provider import ALL_MODEL_PROVIDERS, group_models_by_provider
 
 def define_gui_toolbar(AVAIL_LLM_MODELS, LLM_MODEL, INIT_SYS_PROMPT, THEME, AVAIL_THEMES, AVAIL_FONTS, ADD_WAIFU, help_menu_description, js_code_for_toggle_darkmode):
     with gr.Floating(init_x="0%", init_y="0%", visible=True, width=None, drag="forbidden", elem_id="tooltip"):
@@ -9,7 +10,21 @@ def define_gui_toolbar(AVAIL_LLM_MODELS, LLM_MODEL, INIT_SYS_PROMPT, THEME, AVAI
                 file_upload_2 = gr.Files(label="任何文件, 推荐上传压缩文件(zip, tar)", file_count="multiple", elem_id="elem_upload_float")
 
             with gr.Tab("更换模型", elem_id="interact-panel"):
-                md_dropdown = gr.Dropdown(AVAIL_LLM_MODELS, value=LLM_MODEL, elem_id="elem_model_sel", label="更换LLM模型/请求源").style(container=False)
+                provider_groups = group_models_by_provider(AVAIL_LLM_MODELS)
+                provider_dropdown = gr.Dropdown(
+                    [ALL_MODEL_PROVIDERS, *provider_groups],
+                    value=ALL_MODEL_PROVIDERS,
+                    interactive=True,
+                    elem_id="elem_model_provider_sel",
+                    label="模型厂商 / 接入渠道",
+                ).style(container=False)
+                md_dropdown = gr.Dropdown(
+                    AVAIL_LLM_MODELS,
+                    value=LLM_MODEL,
+                    interactive=True,
+                    elem_id="elem_model_sel",
+                    label="模型",
+                ).style(container=False)
                 top_p = gr.Slider(minimum=-0, maximum=1.0, value=1.0, step=0.01,interactive=True, label="Top-p (nucleus sampling)", elem_id="elem_top_p")
                 temperature = gr.Slider(minimum=-0, maximum=2.0, value=1.0, step=0.01, interactive=True, label="Temperature", elem_id="elem_temperature")
                 max_length_sl = gr.Slider(minimum=256, maximum=1024*32, value=4096, step=128, interactive=True, label="Local LLM MaxLength", elem_id="elem_max_length_sl")
@@ -41,4 +56,4 @@ def define_gui_toolbar(AVAIL_LLM_MODELS, LLM_MODEL, INIT_SYS_PROMPT, THEME, AVAI
 
             with gr.Tab("帮助", elem_id="interact-panel"):
                 gr.Markdown(help_menu_description)
-    return checkboxes, checkboxes_2, max_length_sl, theme_dropdown, system_prompt, file_upload_2, md_dropdown, top_p, temperature
+    return checkboxes, checkboxes_2, max_length_sl, theme_dropdown, system_prompt, file_upload_2, provider_dropdown, md_dropdown, top_p, temperature
