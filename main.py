@@ -1,10 +1,10 @@
 import os; os.environ['no_proxy'] = '*' # 避免代理网络产生意外污染
 
 help_menu_description = \
-"""Github源代码开源和更新[地址🚀](https://github.com/AcademicAgentsStudio),
-感谢热情的[开发者们❤️](https://github.com/AcademicAgentsStudio/graphs/contributors).
-</br></br>常见问题请查阅[项目Wiki](https://github.com/AcademicAgentsStudio/wiki),
-如遇到Bug请前往[Bug反馈](https://github.com/AcademicAgentsStudio/issues).
+"""Github源代码开源和更新[地址🚀](https://github.com/MAX-API-Next/Academic-Agents-Studio),
+感谢热情的[开发者们❤️](https://github.com/MAX-API-Next/Academic-Agents-Studio/graphs/contributors).
+</br></br>常见问题请查阅[项目Wiki](https://github.com/MAX-API-Next/Academic-Agents-Studio/wiki),
+如遇到Bug请前往[Bug反馈](https://github.com/MAX-API-Next/Academic-Agents-Studio/issues).
 </br></br>普通对话使用说明: 1. 输入问题; 2. 点击提交
 </br></br>基础功能区使用说明: 1. 输入文本; 2. 点击任意基础功能区按钮
 </br></br>函数插件区使用说明: 1. 输入路径/问题, 或者上传文件; 2. 点击任意函数插件区按钮
@@ -82,7 +82,7 @@ def main():
                     <p class="subtitle">学术智能体应用服务平台 - 智能研究助手</p>
                     <div class="subtitle-line"></div>
                 </div>
-                <p>-⭐<a href="https://github.com/AcademicAgentsStudio/Academic-Agents-Studio">开源版</a>支持已完整研发稳定功能特性（欢迎加入交流群(QQ群 1030022463 | 微信群 搜索AIOAGI)交流反馈任何问题）</p>
+                <p>-⭐<a href="https://github.com/MAX-API-Next/Academic-Agents-Studio">开源版</a>支持已完整研发稳定功能特性（欢迎加入交流群(QQ群 1030022463 | 微信群 搜索AIOAGI)交流反馈任何问题）</p>
                 <p>-🙂<a href="https://agents.aiearth.vip">⭐内测版</a>免费支持GPT mini、Gemini flash、Claude haiku等系列模型 - 🚀更多高级模型请访问<a href="https://aioagi.tech">AIOAGI.Tech</a>平台获取API Key，输入区输入后覆盖设置使用</p>
             </div>
         </div>
@@ -217,7 +217,7 @@ def main():
 
         # 左上角工具栏定义
         from themes.gui_toolbar import define_gui_toolbar
-        checkboxes, checkboxes_2, max_length_sl, theme_dropdown, system_prompt, file_upload_2, md_dropdown, top_p, temperature = \
+        checkboxes, checkboxes_2, max_length_sl, theme_dropdown, system_prompt, file_upload_2, provider_dropdown, md_dropdown, top_p, temperature = \
             define_gui_toolbar(AVAIL_LLM_MODELS, LLM_MODEL, INIT_SYS_PROMPT, THEME, AVAIL_THEMES, AVAIL_FONTS, ADD_WAIFU, help_menu_description, js_code_for_toggle_darkmode)
 
         # 浮动菜单定义
@@ -309,6 +309,22 @@ def main():
         dropdown.select(None, [dropdown], None, _js=f"""(dropdown)=>run_dropdown_shift(dropdown)""")
 
         # 模型切换时的回调
+        from request_llms.model_provider import models_for_provider
+
+        def on_provider_dropdown_changed(provider, current_model):
+            models = models_for_provider(AVAIL_LLM_MODELS, provider)
+            selected_model = current_model if current_model in models else models[0]
+            return {
+                md_dropdown: gr.Dropdown.update(choices=models, value=selected_model),
+                chatbot: gr.update(label="当前模型：" + selected_model),
+            }
+
+        provider_dropdown.select(
+            on_provider_dropdown_changed,
+            [provider_dropdown, md_dropdown],
+            [md_dropdown, chatbot],
+        )
+
         def on_md_dropdown_changed(k):
             return {chatbot: gr.update(label="当前模型："+k)}
         md_dropdown.select(on_md_dropdown_changed, [md_dropdown], [chatbot])

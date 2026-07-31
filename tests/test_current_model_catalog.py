@@ -12,6 +12,12 @@ from request_llms.provider_compat import (
     apply_openai_sampling_compatibility,
     extract_anthropic_text_delta,
 )
+from request_llms.model_provider import (
+    ALL_MODEL_PROVIDERS,
+    group_models_by_provider,
+    infer_model_provider,
+    models_for_provider,
+)
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -132,6 +138,45 @@ class ProviderCompatibilityTests(unittest.TestCase):
             "delta": {"type": "thinking_delta", "thinking": "private"},
         }
         self.assertEqual(extract_anthropic_text_delta(event), "")
+
+
+class ModelProviderTests(unittest.TestCase):
+    def test_current_models_are_assigned_to_their_direct_providers(self):
+        expected = {
+            "gpt-5.6": "OpenAI",
+            "claude-sonnet-5": "Anthropic",
+            "gemini-3.5-flash": "Google",
+            "kimi-k3": "Moonshot AI",
+            "glm-5.2": "智谱 AI",
+            "qwen3.7-max": "阿里云",
+            "grok-4.5": "xAI",
+        }
+        for model, provider in expected.items():
+            with self.subTest(model=model):
+                self.assertEqual(infer_model_provider(model), provider)
+
+    def test_access_channel_prefixes_take_precedence(self):
+        expected = {
+            "aioagi-claude-sonnet-4": "AIOAGI",
+            "azure-gpt-4": "Microsoft Azure",
+            "openrouter-openai/gpt-4o-mini": "OpenRouter",
+            "ollama-qwen3(max_token=4096)": "Ollama（本地）",
+            "vllm-/models/qwen": "vLLM（本地）",
+        }
+        for model, provider in expected.items():
+            with self.subTest(model=model):
+                self.assertEqual(infer_model_provider(model), provider)
+
+    def test_grouping_and_filtering_preserve_config_order(self):
+        models = ["gpt-5.6", "claude-sonnet-5", "gpt-5-mini", "gpt-5.6"]
+        groups = group_models_by_provider(models)
+
+        self.assertEqual(groups["OpenAI"], ["gpt-5.6", "gpt-5-mini"])
+        self.assertEqual(groups["Anthropic"], ["claude-sonnet-5"])
+        self.assertEqual(
+            models_for_provider(models, ALL_MODEL_PROVIDERS),
+            ["gpt-5.6", "claude-sonnet-5", "gpt-5-mini"],
+        )
 
 
 if __name__ == "__main__":
