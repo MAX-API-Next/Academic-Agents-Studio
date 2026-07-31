@@ -217,8 +217,12 @@ def main():
 
         # 左上角工具栏定义
         from themes.gui_toolbar import define_gui_toolbar
-        checkboxes, checkboxes_2, max_length_sl, theme_dropdown, system_prompt, file_upload_2, provider_dropdown, md_dropdown, top_p, temperature = \
-            define_gui_toolbar(AVAIL_LLM_MODELS, LLM_MODEL, INIT_SYS_PROMPT, THEME, AVAIL_THEMES, AVAIL_FONTS, ADD_WAIFU, help_menu_description, js_code_for_toggle_darkmode)
+        (checkboxes, checkboxes_2, max_length_sl, theme_dropdown, system_prompt,
+         file_upload_2, provider_dropdown, md_dropdown, top_p, temperature,
+         settings_provider, settings_api_key, settings_clear_api_key,
+         settings_default_model, settings_save, settings_status) = define_gui_toolbar(
+            AVAIL_LLM_MODELS, LLM_MODEL, INIT_SYS_PROMPT, THEME, AVAIL_THEMES,
+            AVAIL_FONTS, ADD_WAIFU, help_menu_description, js_code_for_toggle_darkmode)
 
         # 浮动菜单定义
         from themes.gui_floating_menu import define_gui_floating_menu
@@ -328,6 +332,26 @@ def main():
         def on_md_dropdown_changed(k):
             return {chatbot: gr.update(label="当前模型："+k)}
         md_dropdown.select(on_md_dropdown_changed, [md_dropdown], [chatbot])
+
+        # 私有配置只允许本机或首个认证账号通过白名单控件更新
+        from shared_utils.web_config import save_web_settings
+
+        def on_settings_save(request: gr.Request, provider, api_key, clear_api_key, default_model):
+            return save_web_settings(
+                request=request,
+                provider=provider,
+                api_key=api_key,
+                clear_api_key=clear_api_key,
+                default_model=default_model,
+                authentication=AUTHENTICATION,
+                available_models=AVAIL_LLM_MODELS,
+            )
+
+        settings_save.click(
+            on_settings_save,
+            [settings_provider, settings_api_key, settings_clear_api_key, settings_default_model],
+            [settings_api_key, settings_clear_api_key, settings_status],
+        )
 
         # 主题修改
         def on_theme_dropdown_changed(theme, secret_css):

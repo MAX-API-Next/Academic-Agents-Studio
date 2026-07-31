@@ -1,15 +1,29 @@
 import gradio as gr
 from toolbox import get_conf
 from request_llms.model_provider import ALL_MODEL_PROVIDERS, group_models_by_provider
+from shared_utils.web_config import (
+    CREDENTIAL_CONFIG_KEYS,
+    DEFAULT_CREDENTIAL_PROVIDER,
+    credential_status,
+)
 
 def define_gui_toolbar(AVAIL_LLM_MODELS, LLM_MODEL, INIT_SYS_PROMPT, THEME, AVAIL_THEMES, AVAIL_FONTS, ADD_WAIFU, help_menu_description, js_code_for_toggle_darkmode):
-    with gr.Floating(init_x="0%", init_y="0%", visible=True, width=None, drag="forbidden", elem_id="tooltip"):
+    with gr.Floating(
+        init_x="0%",
+        init_y="0%",
+        visible=True,
+        width="100%",
+        drag="forbidden",
+        variant="compact",
+        elem_id="tooltip",
+        elem_classes="app-navbar",
+    ):
         with gr.Row():
-            with gr.Tab("上传文件", elem_id="interact-panel"):
+            with gr.Tab("文件", elem_id="navbar-upload-panel"):
                 gr.Markdown("请上传本地文件/压缩包供“函数插件区”功能调用。请注意: 上传文件后会自动把输入区修改为相应路径。")
                 file_upload_2 = gr.Files(label="任何文件, 推荐上传压缩文件(zip, tar)", file_count="multiple", elem_id="elem_upload_float")
 
-            with gr.Tab("更换模型", elem_id="interact-panel"):
+            with gr.Tab("模型", elem_id="navbar-model-panel"):
                 provider_groups = group_models_by_provider(AVAIL_LLM_MODELS)
                 provider_dropdown = gr.Dropdown(
                     [ALL_MODEL_PROVIDERS, *provider_groups],
@@ -36,7 +50,7 @@ def define_gui_toolbar(AVAIL_LLM_MODELS, LLM_MODEL, INIT_SYS_PROMPT, THEME, AVAI
                 md_dropdown.change(None, inputs=[md_dropdown], outputs=None,
                     _js="""(md_dropdown)=>gpt_academic_gradio_saveload("save", "elem_model_sel", "js_md_dropdown_cookie", md_dropdown)""")
 
-            with gr.Tab("界面外观", elem_id="interact-panel"):
+            with gr.Tab("外观", elem_id="navbar-appearance-panel"):
                 theme_dropdown = gr.Dropdown(AVAIL_THEMES, value=THEME, label="更换UI主题").style(container=False)
                 fontfamily_dropdown = gr.Dropdown(AVAIL_FONTS, value=get_conf("FONT"), elem_id="elem_fontfamily", label="更换字体类型").style(container=False)
                 fontsize_slider = gr.Slider(minimum=5, maximum=25, value=15, step=1, interactive=True, label="字体大小(默认15)", elem_id="elem_fontsize")
@@ -54,6 +68,48 @@ def define_gui_toolbar(AVAIL_LLM_MODELS, LLM_MODEL, INIT_SYS_PROMPT, THEME, AVAI
                 fontsize_slider.change(None, inputs=[fontsize_slider], outputs=None,
                     _js="""(fontsize)=>{gpt_academic_gradio_saveload("save", "elem_fontsize", "js_fontsize", fontsize); gpt_academic_change_chatbot_font(null, fontsize, null);}""")
 
-            with gr.Tab("帮助", elem_id="interact-panel"):
+            with gr.Tab("设置", elem_id="navbar-settings-panel"):
+                settings_provider = gr.Dropdown(
+                    list(CREDENTIAL_CONFIG_KEYS),
+                    value=DEFAULT_CREDENTIAL_PROVIDER,
+                    interactive=True,
+                    elem_id="settings_api_provider",
+                    label="密钥厂商",
+                ).style(container=False)
+                settings_api_key = gr.Textbox(
+                    type="password",
+                    label="新 API Key",
+                    placeholder="留空则保持现有密钥",
+                    elem_id="settings_api_key",
+                )
+                settings_clear_api_key = gr.Checkbox(
+                    value=False,
+                    label="清除该厂商已保存的密钥",
+                    elem_id="settings_clear_api_key",
+                )
+                settings_default_model = gr.Dropdown(
+                    AVAIL_LLM_MODELS,
+                    value=LLM_MODEL,
+                    interactive=True,
+                    elem_id="settings_default_model",
+                    label="默认模型（重启后生效）",
+                ).style(container=False)
+                settings_save = gr.Button("保存设置", variant="primary", elem_id="settings_save")
+                settings_status = gr.Markdown(
+                    credential_status(DEFAULT_CREDENTIAL_PROVIDER),
+                    elem_id="settings_status",
+                )
+                settings_provider.change(
+                    credential_status,
+                    inputs=[settings_provider],
+                    outputs=[settings_status],
+                )
+
+            with gr.Tab("帮助", elem_id="navbar-help-panel"):
                 gr.Markdown(help_menu_description)
-    return checkboxes, checkboxes_2, max_length_sl, theme_dropdown, system_prompt, file_upload_2, provider_dropdown, md_dropdown, top_p, temperature
+    return (
+        checkboxes, checkboxes_2, max_length_sl, theme_dropdown, system_prompt,
+        file_upload_2, provider_dropdown, md_dropdown, top_p, temperature,
+        settings_provider, settings_api_key, settings_clear_api_key,
+        settings_default_model, settings_save, settings_status,
+    )
