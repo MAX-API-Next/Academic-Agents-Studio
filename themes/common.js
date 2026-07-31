@@ -840,72 +840,8 @@ function audio_fn_init() {
 
 
 function minor_ui_adjustment() {
-    let cbsc_area = document.getElementById('cbsc');
-    cbsc_area.style.paddingTop = '15px';
-    var bar_btn_width = [];
-    // 自动隐藏超出范围的toolbar按钮
-    function auto_hide_toolbar() {
-        // if chatbot hit upper page boarder, hide all
-        const elem_chatbot = document.getElementById('gpt-chatbot');
-        const chatbot_top = elem_chatbot.getBoundingClientRect().top;
-        var tooltip = document.getElementById('tooltip');
-        var tab_nav = tooltip.getElementsByClassName('tab-nav')[0];
-
-        // 20 px 大概是一个字的高度
-        if (chatbot_top < 20) {
-            // tab_nav.style.display = 'none';
-            if (tab_nav.classList.contains('visible')) {tab_nav.classList.remove('visible');}
-            if (!tab_nav.classList.contains('hidden')) {tab_nav.classList.add('hidden');}
-            return;
-        }
-        if (tab_nav.classList.contains('hidden')) {tab_nav.classList.remove('hidden');}
-        if (!tab_nav.classList.contains('visible')) {tab_nav.classList.add('visible');}
-        // tab_nav.style.display = '';
-        if (tab_nav.length == 0) { return; }
-        var btn_list = tab_nav.getElementsByTagName('button')
-        if (btn_list.length == 0) { return; }
-        // 获取页面宽度
-        var page_width = document.documentElement.clientWidth;
-        // 总是保留的按钮数量
-        const always_preserve = 2;
-        // 获取最后一个按钮的右侧位置
-        var cur_right = btn_list[always_preserve - 1].getBoundingClientRect().right;
-        if (bar_btn_width.length == 0) {
-            // 首次运行，记录每个按钮的宽度
-            for (var i = 0; i < btn_list.length; i++) {
-                bar_btn_width.push(btn_list[i].getBoundingClientRect().width);
-            }
-        }
-        // 处理每一个按钮
-        for (var i = always_preserve; i < btn_list.length; i++) {
-            var element = btn_list[i];
-            var element_right = element.getBoundingClientRect().right;
-            if (element_right != 0) { cur_right = element_right; }
-            if (element.style.display === 'none') {
-                if ((cur_right + bar_btn_width[i]) < (page_width * 0.37)) {
-                    // 恢复显示当前按钮
-                    element.style.display = 'block';
-                    return;
-                } else {
-                    return;
-                }
-            } else {
-                if (cur_right > (page_width * 0.38)) {
-                    // 隐藏当前按钮以及右侧所有按钮
-                    for (var j = i; j < btn_list.length; j++) {
-                        if (btn_list[j].style.display !== 'none') {
-                            btn_list[j].style.display = 'none';
-                        }
-                    }
-                    return;
-                }
-            }
-        }
-    }
-
-    setInterval(function () {
-        auto_hide_toolbar();
-    }, 200); // 每50毫秒执行一次
+    const cbsc_area = document.getElementById('cbsc');
+    if (cbsc_area) { cbsc_area.style.paddingTop = '15px'; }
 }
 
 // -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
