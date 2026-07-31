@@ -12,6 +12,10 @@ import os
 from typing import Dict, List, Optional, Any, Generator
 from qwen_agent.agents import Assistant
 from mcp_servers.mcp_config import mcp_config_manager, MCPServerConfig
+from mcp_servers.image_generation_tool import (
+    AcademicImageGenerationTool,
+    format_academic_image_result,
+)
 from toolbox import get_conf
 import asyncio
 from mcp.client.sse import sse_client
@@ -123,27 +127,32 @@ class MCPManager:
             if not mcp_tools:
                 # 如果没有可连接的服务器，尝试使用所有启用的服务器
                 mcp_tools = mcp_config_manager.get_servers_for_qwen_agent(test_connection=False)
-                if not mcp_tools:
-                    return None
+            mcp_tools = list(mcp_tools or [])
 
             # 获取用户特定的LLM配置
             llm_cfg = self.get_llm_config(chatbot)
             user_id = self._get_user_id(chatbot)
+            image_tool = AcademicImageGenerationTool(
+                api_keys=llm_cfg["api_key"],
+                chatbot=chatbot,
+            )
+            function_tools = [*mcp_tools, image_tool]
+
 
             # 默认系统消息
             if not system_message:
                 # 获取实际可用的服务器名称
                 available_servers = []
-                if mcp_tools and mcp_tools[0].get("mcpServers"):
+                if mcp_tools and isinstance(mcp_tools[0], dict) and mcp_tools[0].get("mcpServers"):
                     available_servers = list(mcp_tools[0]["mcpServers"].keys())
 
-                if available_servers:
-                    system_message = (
-                        f'你是一个智能助手，可以调用以下工具来帮助用户：{", ".join(available_servers)}。'
-                        '请根据用户的需求智能选择合适的工具进行调用，并对结果进行解释和总结。'
-                    )
-                else:
-                    system_message = '你是一个智能助手，为用户提供帮助。'
+                server_summary = "、".join(available_servers) if available_servers else "本地工具"
+                system_message = (
+                    f"你是一个学术智能助手，可以调用以下服务：{server_summary}。"
+                    "此外可调用 generate_academic_image 生成概念插图、图形摘要和封面插图。"
+                    "仅在用户明确要求生成图片时调用图片工具；要求数值精确的统计图表应调用学术图表工具。"
+                    "请根据需求选择工具，并解释和总结结果。"
+                )
 
             # 创建用户专属的智能体
             bot = Assistant(
@@ -151,7 +160,7 @@ class MCPManager:
                 name=f'学术智能体（Academic Agents）- {user_id}',
                 description='你的学术智能助手',
                 system_message=system_message,
-                function_list=mcp_tools,
+                function_list=function_tools,
             )
 
             chatbot._cookies['mcp_bot_created'] = True
@@ -163,13 +172,17 @@ class MCPManager:
             try:
                 llm_cfg = self.get_llm_config(chatbot)
                 user_id = self._get_user_id(chatbot)
+                image_tool = AcademicImageGenerationTool(
+                    api_keys=llm_cfg["api_key"],
+                    chatbot=chatbot,
+                )
 
                 bot = Assistant(
                     llm=llm_cfg,
                     name=f'学术智能体（Academic Agents）- {user_id}',
                     description='你的学术智能助手',
-                    system_message='你是一个学术智能体（Academic Agents）助手，为用户提供帮助。',
-                    function_list=[],  # 空的工具列表
+                    system_message='你是一个学术智能体助手，可按用户明确要求调用工具生成学术插图。',
+                    function_list=[image_tool],
                 )
 
                 return bot
@@ -250,8 +263,10 @@ class MCPManager:
                                 role = item.get('role')
                                 content = item.get('content', '')
                                 if role == 'function':
-                                    content_md = loop.run_until_complete(format_tool_result(content))
-                                    content = "🛠️" + "工具调用结果：<br>" + content_md
+                                    content_md = format_academic_image_result(content)
+                                    if content_md is None:
+                                        content_md = loop.run_until_complete(format_tool_result(content))
+                                    content = "🛠️工具调用结果：<br>" + content_md
                                     response_parts.append(content)
                                     result_queue.put(('data', content))
                                 elif role == 'assistant' and item.get('function_call'):

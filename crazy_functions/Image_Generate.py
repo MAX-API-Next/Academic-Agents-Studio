@@ -1,5 +1,65 @@
-from toolbox import CatchException, update_ui, get_conf, select_api_key, get_log_folder
+from toolbox import (
+    CatchException,
+    get_conf,
+    get_log_folder,
+    get_user,
+    promote_file_to_downloadzone,
+    select_api_key,
+    update_ui,
+)
 from crazy_functions.multi_stage.multi_stage_utils import GptAcademicState
+from shared_utils.image_generation import generate_image as generate_image_via_api
+
+
+@CatchException
+def 图片生成_GPT_IMAGE(prompt, llm_kwargs, plugin_kwargs, chatbot, history, system_prompt, user_request):
+    history = []
+    prompt = (prompt or "").strip()
+    if not prompt:
+        chatbot.append((prompt, "[Local Message] 图片描述不能为空，请先在输入区填写生成要求。"))
+        yield from update_ui(chatbot=chatbot, history=history)
+        return
+
+    model, endpoint, timeout, proxies = get_conf(
+        "IMAGE_MODEL",
+        "IMAGE_API_URL",
+        "IMAGE_TIMEOUT_SECONDS",
+        "proxies",
+    )
+    chatbot.append((
+        "您正在调用 GPT Image 图片生成插件。",
+        f"[Local Message] 正在通过 AIOAGI 的 {model} 生成图片，请稍候……",
+    ))
+    yield from update_ui(chatbot=chatbot, history=history)
+
+    api_key = select_api_key(llm_kwargs["api_key"], model)
+    output_dir = get_log_folder(get_user(chatbot), plugin_name="image_gen")
+    result = generate_image_via_api(
+        prompt=prompt,
+        api_key=api_key,
+        output_dir=output_dir,
+        endpoint=endpoint,
+        model=model,
+        size=plugin_kwargs.get("resolution", "auto"),
+        quality=plugin_kwargs.get("quality", "medium"),
+        output_format=plugin_kwargs.get("output_format", "png"),
+        timeout=timeout,
+        proxies=proxies,
+    )
+    promote_file_to_downloadzone(result.file_path, chatbot=chatbot)
+
+    import html
+
+    safe_path = html.escape(result.file_path, quote=True)
+    safe_model = html.escape(result.model)
+    safe_size = html.escape(result.size)
+    chatbot.append([
+        prompt,
+        f'<div align="center"><img src="file={safe_path}" alt="生成的图片"></div>'
+        f'<br>模型：<code>{safe_model}</code>，尺寸：<code>{safe_size}</code>'
+        f'<br><a href="file={safe_path}" target="_blank">下载原图</a>',
+    ])
+    yield from update_ui(chatbot=chatbot, history=history)
 
 
 def gen_image(llm_kwargs, prompt, resolution="1024x1024", model="dall-e-2", quality=None, style=None):

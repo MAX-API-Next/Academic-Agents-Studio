@@ -1793,11 +1793,11 @@ def predict(inputs:str, llm_kwargs:dict, plugin_kwargs:dict, chatbot,
                     status_msg += "\n\n**🚀 使用说明**："
                     status_msg += "\n\n• 在下方输入框中描述您的需求，智能体将自动选择合适的工具"
                     status_msg += "\n\n• 支持学术搜索、数据可视化、地图查询等多种功能"
-                    status_msg += "\n\n• **隐私保护**: 会话数据仅在当前session有效"
                 else:
-                    status_msg += "\n\n❌ **当前无可用服务**"
-                    status_msg += "\n• 请等待服务恢复或联系管理员"
+                    status_msg += "\n\n⚠️ 远程 MCP 服务当前不可用，本地工具仍可使用。"
 
+                status_msg += "\n\n• 支持通过 GPT Image 2 生成学术插图、图形摘要和封面插图"
+                status_msg += "\n\n• **隐私保护**: 会话数据仅在当前session有效"
                 status_msg += "\n\n🌟 **欢迎加入Academic Agents Studio** 社区: QQ群 1030022463 | 微信群 搜索AIOAGI"
 
                 chatbot.append([inputs, status_msg])
