@@ -23,6 +23,15 @@ from mcp import ClientSession
 
 
 import time
+
+
+def _format_local_image_result(bot, result_text):
+    """Render only results authorized by this bot's local image tool instance."""
+    function_map = getattr(bot, "function_map", {})
+    image_tool = function_map.get(AcademicImageGenerationTool.name)
+    return format_academic_image_result(result_text, tool=image_tool)
+
+
 # 确保Linux系统下的正确编码处理
 if sys.platform.startswith('linux'):
     # 设置默认编码为UTF-8
@@ -263,7 +272,7 @@ class MCPManager:
                                 role = item.get('role')
                                 content = item.get('content', '')
                                 if role == 'function':
-                                    content_md = format_academic_image_result(content)
+                                    content_md = _format_local_image_result(bot, content)
                                     if content_md is None:
                                         content_md = loop.run_until_complete(format_tool_result(content))
                                     content = "🛠️工具调用结果：<br>" + content_md
@@ -290,6 +299,8 @@ class MCPManager:
                 except Exception as e:
                     error_queue.put(e)
                     result_queue.put(('done', None))
+                finally:
+                    loop.close()
 
             # 启动智能体工作线程
             worker_thread = threading.Thread(target=agent_worker, daemon=True)

@@ -1,10 +1,12 @@
 import html
 import json
 import os
+import secrets
+import threading
 
 from qwen_agent.tools.base import BaseTool
 
-from shared_utils.image_generation import generate_image
+from shared_utils.image_generation import ImageGenerationError, generate_image
 from shared_utils.config_loader import get_conf
 from shared_utils.key_pattern_manager import select_api_key
 
@@ -50,9 +52,12 @@ class AcademicImageGenerationTool(BaseTool):
         self.chatbot = chatbot
         self.output_dir = output_dir
         self.session = session
+        self._render_authorizations = {}
+        self._render_authorizations_lock = threading.Lock()
 
     def call(self, params, **kwargs):
         params = self._verify_json_format_args(params)
+        output_dir = self._get_output_directory()
         model, endpoint, timeout, proxies = get_conf(
             "IMAGE_MODEL",
             "IMAGE_API_URL",
@@ -60,12 +65,6 @@ class AcademicImageGenerationTool(BaseTool):
             "proxies",
         )
         api_key = select_api_key(self.api_keys, model)
-        output_dir = self.output_dir
-        if output_dir is None:
-            from toolbox import get_log_folder, get_user
-
-            user_name = get_user(self.chatbot) if self.chatbot is not None else None
-            output_dir = get_log_folder(user_name, plugin_name="image_gen")
         result = generate_image(
             prompt=params["prompt"],
             api_key=api_key,
@@ -79,41 +78,87 @@ class AcademicImageGenerationTool(BaseTool):
             proxies=proxies,
             session=self.session,
         )
+        file_path, output_root = self._resolve_generated_file(result.file_path, output_dir)
         if self.chatbot is not None:
             from toolbox import promote_file_to_downloadzone
 
-            promote_file_to_downloadzone(result.file_path, chatbot=self.chatbot)
+            promote_file_to_downloadzone(file_path, chatbot=self.chatbot)
+
+        render_token = secrets.token_urlsafe(32)
+        with self._render_authorizations_lock:
+            self._render_authorizations[render_token] = (file_path, output_root)
 
         return json.dumps(
             {
                 "kind": IMAGE_RESULT_KIND,
-                "file_path": result.file_path,
+                "file_path": file_path,
                 "model": result.model,
                 "size": result.size,
                 "quality": result.quality,
                 "output_format": result.output_format,
                 "request_id": result.request_id,
+                "render_token": render_token,
             },
             ensure_ascii=False,
         )
 
+    def _get_output_directory(self):
+        if self.output_dir is not None:
+            return self.output_dir
+        if self.chatbot is None:
+            raise ImageGenerationError("缺少当前用户会话，无法确定图片保存目录。")
 
-def format_academic_image_result(result_text):
-    """Render only trusted generated files; return None for other tool results."""
+        from toolbox import get_log_folder, get_user
+
+        return get_log_folder(get_user(self.chatbot), plugin_name="image_gen")
+
+    @staticmethod
+    def _resolve_generated_file(file_path, output_dir):
+        output_root = os.path.realpath(os.path.abspath(output_dir))
+        resolved_file = os.path.realpath(os.path.abspath(file_path))
+        try:
+            is_inside_output = os.path.commonpath([output_root, resolved_file]) == output_root
+        except ValueError:
+            is_inside_output = False
+        if not is_inside_output or not os.path.isfile(resolved_file):
+            raise ImageGenerationError("图片文件不在当前用户的生成目录中。")
+        return resolved_file, output_root
+
+    def consume_render_authorization(self, result):
+        """Return an authorized path once for a result produced by this tool instance."""
+        render_token = result.get("render_token")
+        if not isinstance(render_token, str):
+            return None
+
+        with self._render_authorizations_lock:
+            authorization = self._render_authorizations.pop(render_token, None)
+        if authorization is None:
+            return None
+
+        expected_file, output_root = authorization
+        candidate = os.path.realpath(os.path.abspath(str(result.get("file_path", ""))))
+        try:
+            is_inside_output = os.path.commonpath([output_root, candidate]) == output_root
+        except ValueError:
+            is_inside_output = False
+        if candidate != expected_file or not is_inside_output or not os.path.isfile(candidate):
+            return None
+        return candidate
+
+
+def format_academic_image_result(result_text, tool=None):
+    """Render a result authorized by the current session's local image tool."""
     try:
         result = json.loads(result_text)
     except (TypeError, json.JSONDecodeError):
         return None
     if not isinstance(result, dict) or result.get("kind") != IMAGE_RESULT_KIND:
         return None
+    if not isinstance(tool, AcademicImageGenerationTool):
+        return None
 
-    file_path = os.path.abspath(str(result.get("file_path", "")))
-    logging_root = os.path.abspath(get_conf("PATH_LOGGING"))
-    try:
-        inside_logging_root = os.path.commonpath([logging_root, file_path]) == logging_root
-    except ValueError:
-        inside_logging_root = False
-    if not inside_logging_root or not os.path.isfile(file_path):
+    file_path = tool.consume_render_authorization(result)
+    if file_path is None:
         return None
 
     safe_path = html.escape(file_path, quote=True)

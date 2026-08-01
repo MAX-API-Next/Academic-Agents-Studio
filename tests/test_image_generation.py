@@ -4,6 +4,8 @@ import os
 import tempfile
 import unittest
 
+import requests
+
 from mcp_servers.image_generation_tool import (
     AcademicImageGenerationTool,
     format_academic_image_result,
@@ -39,10 +41,14 @@ class FakeSession:
 
     def post(self, url, **kwargs):
         self.post_call = (url, kwargs)
+        if isinstance(self.post_response, Exception):
+            raise self.post_response
         return self.post_response
 
     def get(self, url, **kwargs):
         self.get_call = (url, kwargs)
+        if isinstance(self.get_response, Exception):
+            raise self.get_response
         return self.get_response
 
 
@@ -112,6 +118,18 @@ class ImageGenerationClientTests(unittest.TestCase):
                     session=session,
                 )
 
+    def test_connection_error_has_user_safe_message(self):
+        session = FakeSession(requests.RequestException("connection failed"))
+        with tempfile.TemporaryDirectory() as output_dir:
+            with self.assertRaisesRegex(ImageGenerationError, "图片接口连接失败"):
+                generate_image(
+                    prompt="illustration",
+                    api_key="secret",
+                    output_dir=output_dir,
+                    endpoint="https://api.aiearth.dev/v1/images/generations",
+                    session=session,
+                )
+
 
 class AcademicImageToolTests(unittest.TestCase):
     def setUp(self):
@@ -143,17 +161,57 @@ class AcademicImageToolTests(unittest.TestCase):
         self.assertEqual(result["kind"], "academic_image_result")
         self.assertEqual(result["model"], "gpt-image-2")
         self.assertTrue(os.path.isfile(result["file_path"]))
-        rendered = format_academic_image_result(result_text)
+        rendered = format_academic_image_result(result_text, tool=tool)
         self.assertIn('<img src="file=', rendered)
         self.assertIn("下载原图", rendered)
 
-    def test_renderer_rejects_paths_outside_logging_root(self):
-        with tempfile.NamedTemporaryFile() as outside_file:
-            result_text = json.dumps({
-                "kind": "academic_image_result",
-                "file_path": outside_file.name,
-            })
-            self.assertIsNone(format_academic_image_result(result_text))
+    def test_renderer_rejects_forged_path_for_another_user(self):
+        session = FakeSession(FakeResponse({
+            "data": [{"b64_json": base64.b64encode(b"image").decode("ascii")}],
+        }))
+        tool = AcademicImageGenerationTool(
+            api_keys="sk-" + "a" * 48,
+            output_dir=self.output_dir.name,
+            session=session,
+        )
+        result = json.loads(tool.call({"prompt": "illustration"}))
+
+        with tempfile.TemporaryDirectory(dir=self.logging_root) as other_user_dir:
+            other_user_file = os.path.join(other_user_dir, "private.png")
+            with open(other_user_file, "wb") as image_file:
+                image_file.write(b"private")
+            result["file_path"] = other_user_file
+
+            self.assertIsNone(
+                format_academic_image_result(json.dumps(result), tool=tool)
+            )
+
+    def test_renderer_rejects_unknown_file_in_current_user_directory(self):
+        unknown_file = os.path.join(self.output_dir.name, "unknown.png")
+        with open(unknown_file, "wb") as image_file:
+            image_file.write(b"unknown")
+        forged_result = json.dumps({
+            "kind": "academic_image_result",
+            "file_path": unknown_file,
+            "render_token": "forged",
+        })
+        tool = AcademicImageGenerationTool(
+            api_keys="sk-" + "a" * 48,
+            output_dir=self.output_dir.name,
+        )
+
+        self.assertIsNone(format_academic_image_result(forged_result, tool=tool))
+
+    def test_tool_requires_chatbot_when_output_directory_is_not_explicit(self):
+        session = FakeSession(FakeResponse())
+        tool = AcademicImageGenerationTool(
+            api_keys="sk-" + "a" * 48,
+            session=session,
+        )
+
+        with self.assertRaisesRegex(ImageGenerationError, "缺少当前用户会话"):
+            tool.call({"prompt": "illustration"})
+        self.assertIsNone(session.post_call)
 
 
 if __name__ == "__main__":
