@@ -130,6 +130,21 @@ class ImageGenerationClientTests(unittest.TestCase):
                     session=session,
                 )
 
+    def test_url_download_connection_error_has_user_safe_message(self):
+        session = FakeSession(
+            FakeResponse({"data": [{"url": "https://cdn.example/image"}]}),
+            requests.RequestException("download failed"),
+        )
+        with tempfile.TemporaryDirectory() as output_dir:
+            with self.assertRaisesRegex(ImageGenerationError, "图片下载失败"):
+                generate_image(
+                    prompt="illustration",
+                    api_key="secret",
+                    output_dir=output_dir,
+                    endpoint="https://api.aiearth.dev/v1/images/generations",
+                    session=session,
+                )
+
 
 class AcademicImageToolTests(unittest.TestCase):
     def setUp(self):

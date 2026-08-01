@@ -257,7 +257,21 @@ class MCPManager:
 
                         return result.content[0].text
 
-
+            def format_agent_error(error):
+                try:
+                    error_str = str(error)
+                    if any(ord(char) > 127 for char in error_str):
+                        error_str = error_str.encode(
+                            "utf-8",
+                            errors="replace",
+                        ).decode("utf-8")
+                except UnicodeError:
+                    error_str = repr(error)
+                return (
+                    "学术智能体（Academic Agents）调用出错: "
+                    f"{error_str}，请重试/联系管理员"
+                    "(QQ群 1030022463 | 微信群 搜索AIOAGI)。"
+                )
 
             def agent_worker():
                 """智能体工作线程"""
@@ -318,17 +332,7 @@ class MCPManager:
 
                 # 检查是否有错误
                 if not error_queue.empty():
-                    error = error_queue.get()
-                    # 确保错误信息的正确编码处理
-                    try:
-                        error_str = str(error)
-                        if any(ord(char) > 127 for char in error_str):
-                            error_str = error_str.encode('utf-8', errors='replace').decode('utf-8')
-                    except UnicodeError:
-                        error_str = repr(error)
-
-                    error_msg = f"学术智能体（Academic Agents）调用出错: {error_str}，请重试/联系管理员(QQ群 1030022463 | 微信群 搜索AIOAGI)。"
-                    yield error_msg
+                    yield format_agent_error(error_queue.get())
                     break
 
                 # 检查是否有新的响应数据
@@ -339,6 +343,8 @@ class MCPManager:
                         yield data
                         start_time = time.time()#重置处理时间 trick
                     elif msg_type == 'done':
+                        if not error_queue.empty():
+                            yield format_agent_error(error_queue.get())
                         break
                 except queue.Empty:
                     if current_time - last_progress_time >= 1.0:  # 每1秒更新一次进度符号

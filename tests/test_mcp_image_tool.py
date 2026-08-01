@@ -64,6 +64,11 @@ class FakeClientSession:
         return SimpleNamespace(content=content)
 
 
+class FailingClientSession(FakeClientSession):
+    async def call_tool(self, name, arguments):
+        raise RuntimeError("remote formatter failed")
+
+
 class MCPImageToolTests(unittest.TestCase):
     def setUp(self):
         self.chatbot = SimpleNamespace(_cookies={
@@ -169,6 +174,30 @@ class MCPImageToolTests(unittest.TestCase):
             ))
 
         self.assertIn("remote-rendered", "".join(output))
+
+    def test_remote_formatter_failure_is_returned_to_the_user(self):
+        manager = MCPManager()
+        bot = SimpleNamespace(
+            function_map={},
+            run=lambda messages: iter([[{
+                "role": "function",
+                "content": json.dumps({"result": "ordinary MCP output"}),
+            }]]),
+        )
+
+        with (
+            patch("mcp_servers.mcp_manager.sse_client", return_value=FakeSSEContext()),
+            patch("mcp_servers.mcp_manager.ClientSession", FailingClientSession),
+        ):
+            output = list(manager.chat_with_mcp(
+                "use a remote tool",
+                chatbot=self.chatbot,
+                bot=bot,
+            ))
+
+        response = "".join(output)
+        self.assertIn("调用出错", response)
+        self.assertIn("remote formatter failed", response)
 
     def test_result_cannot_be_rendered_by_another_bot_tool(self):
         with (

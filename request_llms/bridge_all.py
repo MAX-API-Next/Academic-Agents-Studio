@@ -1766,6 +1766,8 @@ def predict(inputs:str, llm_kwargs:dict, plugin_kwargs:dict, chatbot,
                 import sys
                 import os
 
+                mcp_config_loaded = False
+                image_tool_available = False
                 try:
                     from mcp_servers.static_utils import load_mcp_server_data, format_server_message, get_mcp_servers_for_config
                     mcp_data = load_mcp_server_data()
@@ -1777,6 +1779,7 @@ def predict(inputs:str, llm_kwargs:dict, plugin_kwargs:dict, chatbot,
                         status_msg = format_server_message(mcp_data)
 
                     mcp_servers = get_mcp_servers_for_config()
+                    mcp_config_loaded = True
 
                 except Exception as e:
                     status_msg = "⚠️ **学术智能体（Academic Agents）服务加载异常**\n\n"
@@ -1788,17 +1791,35 @@ def predict(inputs:str, llm_kwargs:dict, plugin_kwargs:dict, chatbot,
                     status_msg += "• 联系技术支持 (QQ群 1030022463 | 微信群 搜索AIOAGI)"
                     mcp_servers = []
 
-                # 添加使用说明和服务状态
-                if mcp_servers:
-                    status_msg += "\n\n**🚀 使用说明**："
-                    status_msg += "\n\n• 在下方输入框中描述您的需求，智能体将自动选择合适的工具"
-                    status_msg += "\n\n• 支持学术搜索、数据可视化、地图查询等多种功能"
-                else:
-                    status_msg += "\n\n⚠️ 远程 MCP 服务当前不可用；配置有效的图像 API Key 后，仍可使用本地图片工具。"
+                if mcp_config_loaded:
+                    try:
+                        from shared_utils.key_pattern_manager import select_api_key
 
-                status_msg += "\n\n• 支持通过 GPT Image 2 生成学术插图、图形摘要和封面插图"
-                status_msg += "\n\n• 图片提示词会发送至设置中配置的兼容图像服务"
-                status_msg += "\n\n• 生成文件会保存在本地日志目录，并加入文件下载区"
+                        image_model = get_conf("IMAGE_MODEL")
+                        image_api_keys = mcp_manager.get_llm_config(chatbot).get("api_key", "")
+                        select_api_key(image_api_keys, image_model)
+                        image_tool_available = True
+                    except Exception:
+                        image_tool_available = False
+
+                    # 添加使用说明和服务状态
+                    if mcp_servers:
+                        status_msg += "\n\n**🚀 使用说明**："
+                        status_msg += "\n\n• 在下方输入框中描述您的需求，智能体将自动选择合适的工具"
+                        status_msg += "\n\n• 支持学术搜索、数据可视化、地图查询等多种功能"
+                    elif image_tool_available:
+                        status_msg += "\n\n⚠️ 远程 MCP 服务当前不可用；本地图片工具仍可使用。"
+                    else:
+                        status_msg += "\n\n⚠️ 远程 MCP 服务当前不可用。"
+
+                    if image_tool_available:
+                        status_msg += "\n\n• 支持通过 GPT Image 2 生成学术插图、图形摘要和封面插图"
+                        status_msg += "\n\n• 图片提示词会发送至设置中配置的兼容图像服务"
+                        status_msg += "\n\n• 生成文件会保存在本地日志目录，并加入文件下载区"
+                    else:
+                        status_msg += "\n\n⚠️ 图片生成当前不可用，请先配置有效的图像 API Key。"
+                else:
+                    status_msg += "\n\n⚠️ 本地图片工具状态未确认，请先修复服务配置后重试。"
                 status_msg += "\n\n🌟 **欢迎加入Academic Agents Studio** 社区: QQ群 1030022463 | 微信群 搜索AIOAGI"
 
                 chatbot.append([inputs, status_msg])
