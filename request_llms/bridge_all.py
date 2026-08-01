@@ -12,7 +12,9 @@ import tiktoken, copy
 from loguru import logger
 from functools import lru_cache
 from concurrent.futures import ThreadPoolExecutor
+from urllib.parse import urlparse
 from toolbox import get_conf, trimmed_format_exc, apply_gpt_academic_string_mask, read_one_api_model_name
+from shared_utils.key_pattern_manager import select_api_key
 
 from .bridge_chatgpt import predict_no_ui_long_connection as chatgpt_noui
 from .bridge_chatgpt import predict as chatgpt_ui
@@ -48,6 +50,29 @@ from .oai_std_model_template import get_predict_function
 from .current_model_registry import CURRENT_MODEL_SPECS, current_model_names
 
 colors = ['#FF00FF', '#00FFFF', '#FF0000', '#990099', '#009999', '#990044']
+
+def _image_tool_is_configured(mcp_manager, chatbot):
+    image_model, image_endpoint = get_conf("IMAGE_MODEL", "IMAGE_API_URL")
+    if not isinstance(image_model, str) or not image_model.strip():
+        raise ValueError("IMAGE_MODEL must be a non-empty string.")
+
+    if not isinstance(image_endpoint, str):
+        raise ValueError("IMAGE_API_URL must be an absolute HTTP(S) URL.")
+    parsed_endpoint = urlparse(image_endpoint)
+    if (
+        parsed_endpoint.scheme not in {"http", "https"}
+        or not parsed_endpoint.netloc
+    ):
+        raise ValueError("IMAGE_API_URL must be an absolute HTTP(S) URL.")
+
+    llm_config = mcp_manager.get_llm_config(chatbot)
+    image_api_keys = llm_config.get("api_key", "")
+    try:
+        select_api_key(image_api_keys, image_model)
+    except RuntimeError:
+        return False
+    return True
+
 
 class LazyloadTiktoken(object):
     def __init__(self, model):
@@ -1766,6 +1791,8 @@ def predict(inputs:str, llm_kwargs:dict, plugin_kwargs:dict, chatbot,
                 import sys
                 import os
 
+                mcp_config_loaded = False
+                image_tool_available = False
                 try:
                     from mcp_servers.static_utils import load_mcp_server_data, format_server_message, get_mcp_servers_for_config
                     mcp_data = load_mcp_server_data()
@@ -1777,10 +1804,11 @@ def predict(inputs:str, llm_kwargs:dict, plugin_kwargs:dict, chatbot,
                         status_msg = format_server_message(mcp_data)
 
                     mcp_servers = get_mcp_servers_for_config()
+                    mcp_config_loaded = True
 
-                except Exception as e:
+                except Exception:
+                    logger.exception("Failed to load Academic Agents MCP configuration")
                     status_msg = "⚠️ **学术智能体（Academic Agents）服务加载异常**\n\n"
-                    status_msg += f"错误详情: {str(e)}\n\n"
                     status_msg += "**可能的解决方案**:\n"
                     status_msg += "• 确保 `mcp_servers.json` 文件存在于 `mcp_servers` 文件夹中\n"
                     status_msg += "• 运行 MCP 守护进程生成服务器状态文件\n"
@@ -1788,16 +1816,30 @@ def predict(inputs:str, llm_kwargs:dict, plugin_kwargs:dict, chatbot,
                     status_msg += "• 联系技术支持 (QQ群 1030022463 | 微信群 搜索AIOAGI)"
                     mcp_servers = []
 
-                # 添加使用说明和服务状态
-                if mcp_servers:
-                    status_msg += "\n\n**🚀 使用说明**："
-                    status_msg += "\n\n• 在下方输入框中描述您的需求，智能体将自动选择合适的工具"
-                    status_msg += "\n\n• 支持学术搜索、数据可视化、地图查询等多种功能"
-                    status_msg += "\n\n• **隐私保护**: 会话数据仅在当前session有效"
-                else:
-                    status_msg += "\n\n❌ **当前无可用服务**"
-                    status_msg += "\n• 请等待服务恢复或联系管理员"
+                if mcp_config_loaded:
+                    image_tool_available = _image_tool_is_configured(
+                        mcp_manager,
+                        chatbot,
+                    )
 
+                    # 添加使用说明和服务状态
+                    if mcp_servers:
+                        status_msg += "\n\n**🚀 使用说明**："
+                        status_msg += "\n\n• 在下方输入框中描述您的需求，智能体将自动选择合适的工具"
+                        status_msg += "\n\n• 支持学术搜索、数据可视化、地图查询等多种功能"
+                    elif image_tool_available:
+                        status_msg += "\n\n⚠️ 远程 MCP 服务当前不可用；本地图片工具仍可使用。"
+                    else:
+                        status_msg += "\n\n⚠️ 远程 MCP 服务当前不可用。"
+
+                    if image_tool_available:
+                        status_msg += "\n\n• 支持通过 GPT Image 2 生成学术插图、图形摘要和封面插图"
+                        status_msg += "\n\n• 图片提示词会发送至设置中配置的兼容图像服务"
+                        status_msg += "\n\n• 生成文件会保存在本地日志目录，并加入文件下载区"
+                    else:
+                        status_msg += "\n\n⚠️ 图片生成当前不可用，请先配置有效的图像 API Key。"
+                else:
+                    status_msg += "\n\n⚠️ 本地图片工具状态未确认，请先修复服务配置后重试。"
                 status_msg += "\n\n🌟 **欢迎加入Academic Agents Studio** 社区: QQ群 1030022463 | 微信群 搜索AIOAGI"
 
                 chatbot.append([inputs, status_msg])
@@ -1807,9 +1849,13 @@ def predict(inputs:str, llm_kwargs:dict, plugin_kwargs:dict, chatbot,
                 chatbot.append([inputs, "⭕ 学术智能体（Academic Agents）功能已禁用。您的个人设置已清除。"])
                 yield from update_ui(chatbot=chatbot, history=history)
             return
-        except Exception as e:
+        except Exception:
             from toolbox import update_ui
-            chatbot.append([inputs, f"❌ 学术智能体（Academic Agents）功能操作失败: {str(e)}"])
+            logger.exception("Academic Agents feature operation failed")
+            chatbot.append([
+                inputs,
+                "❌ 学术智能体（Academic Agents）功能操作失败，请检查服务端日志或联系管理员。",
+            ])
             yield from update_ui(chatbot=chatbot, history=history)
             return
 
