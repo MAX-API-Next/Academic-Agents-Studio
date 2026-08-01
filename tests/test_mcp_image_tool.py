@@ -16,6 +16,7 @@ _PROXY_VALUES = {
 try:
     from mcp_servers.image_generation_tool import AcademicImageGenerationTool
     from mcp_servers.mcp_manager import MCPManager, _format_local_image_result
+    from request_llms.bridge_all import _image_tool_is_configured
 finally:
     os.environ.update(_PROXY_VALUES)
 
@@ -36,37 +37,6 @@ class FakeResponse:
 class FakeSession:
     def post(self, url, **kwargs):
         return FakeResponse()
-
-
-class FakeSSEContext:
-    async def __aenter__(self):
-        return "reader", "writer"
-
-    async def __aexit__(self, exc_type, exc, traceback):
-        return False
-
-
-class FakeClientSession:
-    def __init__(self, *streams):
-        pass
-
-    async def __aenter__(self):
-        return self
-
-    async def __aexit__(self, exc_type, exc, traceback):
-        return False
-
-    async def initialize(self):
-        pass
-
-    async def call_tool(self, name, arguments):
-        content = [SimpleNamespace(text="remote-rendered")]
-        return SimpleNamespace(content=content)
-
-
-class FailingClientSession(FakeClientSession):
-    async def call_tool(self, name, arguments):
-        raise RuntimeError("remote formatter failed")
 
 
 class MCPImageToolTests(unittest.TestCase):
@@ -122,6 +92,7 @@ class MCPImageToolTests(unittest.TestCase):
         self.assertEqual(len(fallback_tools), 1)
         self.assertIsInstance(fallback_tools[0], AcademicImageGenerationTool)
         self.assertIs(fallback_tools[0].chatbot, self.chatbot)
+        self.assertTrue(self.chatbot._cookies["mcp_bot_created"])
 
     def test_local_image_result_uses_exact_bot_tool_without_remote_formatter(self):
         manager = MCPManager()
@@ -140,64 +111,90 @@ class MCPImageToolTests(unittest.TestCase):
                 }]]),
             )
 
-            with patch(
-                "mcp_servers.mcp_manager.sse_client",
-                side_effect=AssertionError("remote formatter should not be called"),
-            ) as remote_formatter:
-                output = list(manager.chat_with_mcp(
-                    "draw an image",
-                    chatbot=self.chatbot,
-                    bot=bot,
-                ))
-
-        self.assertFalse(remote_formatter.called)
-        self.assertIn('<img src="file=', "".join(output))
-
-    def test_unrecognized_result_falls_back_to_remote_formatter(self):
-        manager = MCPManager()
-        bot = SimpleNamespace(
-            function_map={},
-            run=lambda messages: iter([[{
-                "role": "function",
-                "content": json.dumps({"result": "ordinary MCP output"}),
-            }]]),
-        )
-
-        with (
-            patch("mcp_servers.mcp_manager.sse_client", return_value=FakeSSEContext()),
-            patch("mcp_servers.mcp_manager.ClientSession", FakeClientSession),
-        ):
             output = list(manager.chat_with_mcp(
-                "use a remote tool",
+                "draw an image",
                 chatbot=self.chatbot,
                 bot=bot,
             ))
 
-        self.assertIn("remote-rendered", "".join(output))
+        self.assertIn('<img src="file=', "".join(output))
 
-    def test_remote_formatter_failure_is_returned_to_the_user(self):
+    def test_unrecognized_result_is_escaped_and_rendered_locally(self):
         manager = MCPManager()
         bot = SimpleNamespace(
             function_map={},
             run=lambda messages: iter([[{
                 "role": "function",
-                "content": json.dumps({"result": "ordinary MCP output"}),
+                "content": json.dumps({
+                    "result": "<script>private research</script>",
+                }),
             }]]),
         )
 
-        with (
-            patch("mcp_servers.mcp_manager.sse_client", return_value=FakeSSEContext()),
-            patch("mcp_servers.mcp_manager.ClientSession", FailingClientSession),
-        ):
+        output = list(manager.chat_with_mcp(
+            "use a tool",
+            chatbot=self.chatbot,
+            bot=bot,
+        ))
+
+        response = "".join(output)
+        self.assertIn("<pre><code>", response)
+        self.assertIn("&lt;script&gt;private research&lt;/script&gt;", response)
+        self.assertNotIn("<script>", response)
+
+    def test_agent_error_is_logged_but_raw_details_are_not_returned(self):
+        manager = MCPManager()
+        sensitive_error = "Authorization=Bearer secret-research-token"
+
+        def failing_run(messages):
+            raise RuntimeError(sensitive_error)
+
+        bot = SimpleNamespace(function_map={}, run=failing_run)
+        with patch("mcp_servers.mcp_manager.logger") as server_logger:
             output = list(manager.chat_with_mcp(
-                "use a remote tool",
+                "use a tool",
                 chatbot=self.chatbot,
                 bot=bot,
             ))
 
         response = "".join(output)
         self.assertIn("调用出错", response)
-        self.assertIn("remote formatter failed", response)
+        self.assertIn("错误编号", response)
+        self.assertNotIn(sensitive_error, response)
+        server_logger.opt.return_value.error.assert_called_once()
+
+    def test_image_tool_configuration_matches_key_and_endpoint(self):
+        manager = SimpleNamespace()
+        manager.get_llm_config = lambda chatbot: {"api_key": chatbot}
+        valid_key = "sk-" + "a" * 48
+
+        with patch(
+            "request_llms.bridge_all.get_conf",
+            return_value=("gpt-image-2", "https://api.aiearth.dev/v1/images/generations"),
+        ):
+            for api_key, expected in (
+                ("", False),
+                ("invalid", False),
+                (valid_key, True),
+            ):
+                with self.subTest(api_key=api_key):
+                    self.assertEqual(
+                        _image_tool_is_configured(manager, api_key),
+                        expected,
+                    )
+
+        with patch(
+            "request_llms.bridge_all.get_conf",
+            return_value=("aioagi-gpt-image-2", "https://api.aiearth.dev/v1/images/generations"),
+        ):
+            self.assertTrue(_image_tool_is_configured(manager, valid_key))
+
+        with patch(
+            "request_llms.bridge_all.get_conf",
+            return_value=("gpt-image-2", "relative/images/generations"),
+        ):
+            with self.assertRaisesRegex(ValueError, "IMAGE_API_URL"):
+                _image_tool_is_configured(manager, valid_key)
 
     def test_result_cannot_be_rendered_by_another_bot_tool(self):
         with (
