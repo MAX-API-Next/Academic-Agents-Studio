@@ -7,6 +7,7 @@ help_menu_description = \
 如遇到Bug请前往[Bug反馈](https://github.com/MAX-API-Next/Academic-Agents-Studio/issues).
 </br></br>普通对话使用说明: 1. 输入问题; 2. 点击提交
 </br></br>基础功能区使用说明: 1. 输入文本; 2. 点击任意基础功能区按钮
+</br></br>绘图功能区使用说明: 1. 输入图片描述; 2. 选择分辨率、质量和格式; 3. 点击生成图片
 </br></br>函数插件区使用说明: 1. 输入路径/问题, 或者上传文件; 2. 点击任意函数插件区按钮
 </br></br>虚空终端使用说明: 点击虚空终端, 然后根据提示输入指令, 再次点击虚空终端
 </br></br>如何保存对话: 点击保存当前的对话按钮
@@ -31,6 +32,27 @@ def encode_plugin_info(k, plugin)->str:
     else:
         plugin_["Label"] = f"插件[{k}]不需要高级参数。"
     return to_cookie_str(plugin_)
+
+DRAWING_RESOLUTION_OPTIONS = (
+    "auto",
+    "1024x1024",
+    "1536x1024",
+    "1024x1536",
+    "2048x2048",
+    "2048x1152",
+    "3840x2160",
+    "2160x3840",
+)
+DRAWING_QUALITY_OPTIONS = ("low", "medium", "high", "auto")
+DRAWING_FORMAT_OPTIONS = ("png", "jpeg", "webp")
+
+
+def build_drawing_plugin_kwargs(resolution, quality, output_format):
+    return {
+        "resolution": resolution,
+        "quality": quality,
+        "output_format": output_format,
+    }
 
 def main():
     import gradio as gr
@@ -180,6 +202,33 @@ def main():
                             functional[k]["Button"] = gr.Button(k, variant=variant, info_str=f'基础功能区: {k}')
                             functional[k]["Button"].style(size="sm")
                             predefined_btns.update({k: functional[k]["Button"]})
+                with gr.Accordion("绘图功能区", open=False, elem_id="drawing-panel") as area_drawing_fn:
+                    drawing_prompt = gr.Textbox(
+                        label="图片描述",
+                        placeholder="描述主体、布局、风格和用途，例如：为 Transformer 论文绘制一张简洁的横版图形摘要",
+                        lines=3,
+                        max_lines=8,
+                        elem_id="drawing_prompt",
+                    )
+                    with gr.Row():
+                        drawing_resolution = gr.Dropdown(
+                            DRAWING_RESOLUTION_OPTIONS, value="auto", interactive=True,
+                            label="分辨率", elem_id="drawing_resolution",
+                        ).style(container=False)
+                        drawing_quality = gr.Dropdown(
+                            DRAWING_QUALITY_OPTIONS, value="medium", interactive=True,
+                            label="质量", elem_id="drawing_quality",
+                        ).style(container=False)
+                        drawing_format = gr.Dropdown(
+                            DRAWING_FORMAT_OPTIONS, value="png", interactive=True,
+                            label="格式", elem_id="drawing_format",
+                        ).style(container=False)
+                    drawing_generate_btn = gr.Button(
+                        "🎨 生成图片（GPT Image 2）",
+                        variant="primary",
+                        elem_id="drawing_generate_btn",
+                        info_str="绘图功能区: 使用 GPT Image 2 生成图片",
+                    ).style(size="sm")
                 with gr.Accordion("函数插件区", open=False, elem_id="plugin-panel") as area_crazy_fn:
                     with gr.Row():
                         gr.Markdown("<small>插件可读取“输入区”文本/路径作为参数（上传文件自动修正路径）</small>")
@@ -243,9 +292,10 @@ def main():
             ret.update({area_input_primary: gr.update(visible=("浮动输入区" not in a))})
             ret.update({area_input_secondary: gr.update(visible=("浮动输入区" in a))})
             ret.update({plugin_advanced_arg: gr.update(visible=("插件参数区" in a))})
+            ret.update({area_drawing_fn: gr.update(visible=("绘图功能区" in a))})
             if "浮动输入区" in a: ret.update({txt: gr.update(value="")})
             return ret
-        checkboxes.select(fn_area_visibility, [checkboxes], [area_basic_fn, area_crazy_fn, area_input_primary, area_input_secondary, txt, txt2, plugin_advanced_arg] )
+        checkboxes.select(fn_area_visibility, [checkboxes], [area_basic_fn, area_drawing_fn, area_crazy_fn, area_input_primary, area_input_secondary, txt, txt2, plugin_advanced_arg] )
         checkboxes.select(None, [checkboxes], None, _js=js_code_show_or_hide)
 
         # 功能区显示开关与功能区的互动
@@ -293,6 +343,38 @@ def main():
         for btn in customize_btns.values():
             click_handle = btn.click(fn=ArgsGeneralWrapper(predict), inputs=[*input_combo, gr.State(True), gr.State(btn.value)], outputs=output_combo)
             cancel_handles.append(click_handle)
+
+        # 绘图功能区：使用常驻参数控件直接调用 GPT Image 2。
+        from crazy_functions.Image_Generate import 图片生成_GPT_IMAGE
+
+        def route_drawing_request(
+            request: gr.Request, resolution, quality, output_format,
+            cookies_value, max_length, llm_model, prompt, top_p_value,
+            temperature_value, chatbot_value, history_value, system_prompt_value,
+        ):
+            plugin_kwargs = build_drawing_plugin_kwargs(resolution, quality, output_format)
+            yield from ArgsGeneralWrapper(图片生成_GPT_IMAGE)(
+                request, cookies_value, max_length, llm_model, prompt, "",
+                top_p_value, temperature_value, chatbot_value, history_value,
+                system_prompt_value, plugin_kwargs,
+            )
+
+        drawing_click_handle = drawing_generate_btn.click(
+            route_drawing_request,
+            inputs=[
+                drawing_resolution, drawing_quality, drawing_format,
+                cookies, max_length_sl, md_dropdown, drawing_prompt, top_p,
+                temperature, chatbot, history, system_prompt,
+            ],
+            outputs=output_combo,
+        )
+        drawing_click_handle.then(
+            on_report_generated,
+            [cookies, file_upload, chatbot],
+            [cookies, file_upload, chatbot],
+        )
+        cancel_handles.append(drawing_click_handle)
+
         # 文件上传区，接收文件后与chatbot的互动
         file_upload.upload(on_file_uploaded, [file_upload, chatbot, txt, txt2, checkboxes, cookies], [chatbot, txt, txt2, cookies]).then(None, None, None,   _js=r"()=>{toast_push('上传完毕 ...'); cancel_loading_status();}")
         file_upload_2.upload(on_file_uploaded, [file_upload_2, chatbot, txt, txt2, checkboxes, cookies], [chatbot, txt, txt2, cookies]).then(None, None, None, _js=r"()=>{toast_push('上传完毕 ...'); cancel_loading_status();}")

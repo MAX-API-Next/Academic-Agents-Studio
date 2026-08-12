@@ -283,6 +283,16 @@
     margin-top: 1rem;
 }
 
+/* 绘图功能区样式优化 */
+#drawing-panel {
+    background: linear-gradient(135deg, rgba(15, 23, 42, 0.8) 0%, rgba(30, 41, 59, 0.8) 100%);
+    border: 1px solid rgba(64, 224, 255, 0.2);
+    border-radius: 12px;
+    padding: 1rem;
+    backdrop-filter: blur(15px);
+    margin-top: 1rem;
+}
+
 /* 函数插件区样式优化 */
 #plugin-panel {
     background: linear-gradient(135deg, rgba(15, 23, 42, 0.8) 0%, rgba(30, 41, 59, 0.8) 100%);
@@ -318,6 +328,7 @@
 
 /* 暗色模式下的功能区域优化 */
 .dark #basic-panel,
+.dark #drawing-panel,
 .dark #plugin-panel {
     background: linear-gradient(135deg, rgba(5, 8, 16, 0.9) 0%, rgba(15, 23, 42, 0.9) 100%);
     border-color: rgba(64, 224, 255, 0.3);

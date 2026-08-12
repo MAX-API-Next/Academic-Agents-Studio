@@ -561,6 +561,7 @@ function get_elements(consider_state_panel = false) {
     }
     const panel1 = document.querySelector('#input-panel').getBoundingClientRect();
     const panel2 = document.querySelector('#basic-panel').getBoundingClientRect()
+    const drawingPanel = document.querySelector('#drawing-panel').getBoundingClientRect();
     const panel3 = document.querySelector('#plugin-panel').getBoundingClientRect();
     // const panel4 = document.querySelector('#interact-panel').getBoundingClientRect();
     const panel_active = document.querySelector('#state-panel').getBoundingClientRect();
@@ -568,7 +569,7 @@ function get_elements(consider_state_panel = false) {
         document.state_panel_height = panel_active.height;
     }
     // 25 是chatbot的label高度, 16 是右侧的gap
-    var height_target = panel1.height + panel2.height + panel3.height + 0 + 0 - 25 + 16 * 2;
+    var height_target = panel1.height + panel2.height + drawingPanel.height + panel3.height - 25 + 16 * 3;
     // 禁止动态的state-panel高度影响
     height_target = height_target + (document.state_panel_height - panel_active.height)
     var height_target = parseInt(height_target);
