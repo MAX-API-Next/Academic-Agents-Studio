@@ -1,5 +1,6 @@
 import os
 import tempfile
+import threading
 import unittest
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -97,6 +98,40 @@ class DrawingAreaTests(unittest.TestCase):
         self.assertEqual(completed.status, "completed")
         self.assertEqual(completed.result, "image")
         self.assertIsNone(manager.get(job.job_id, owner="someone-else"))
+
+    def test_image_job_manager_wait_can_time_out_while_job_is_pending(self):
+        work_started = threading.Event()
+        release_work = threading.Event()
+
+        def blocked_work():
+            work_started.set()
+            release_work.wait(1.0)
+            return "image"
+
+        manager = ImageJobManager(max_workers=1)
+        job = manager.submit(owner="tester", prompt="draw", work=blocked_work)
+        self.assertTrue(work_started.wait(1.0))
+
+        pending = manager.wait(job.job_id, owner="tester", timeout=0.01)
+
+        self.assertIsNotNone(pending)
+        self.assertFalse(pending.done.is_set())
+        release_work.set()
+        completed = manager.wait(job.job_id, owner="tester", timeout=1.0)
+        self.assertEqual(completed.status, "completed")
+
+    def test_image_job_manager_records_background_failures(self):
+        def failing_work():
+            raise ValueError("image generation failed")
+
+        manager = ImageJobManager(max_workers=1)
+        job = manager.submit(owner="tester", prompt="draw", work=failing_work)
+
+        failed = manager.wait(job.job_id, owner="tester", timeout=1.0)
+
+        self.assertTrue(failed.done.is_set())
+        self.assertEqual(failed.status, "failed")
+        self.assertIn("image generation failed", failed.error)
 
 
 if __name__ == "__main__":

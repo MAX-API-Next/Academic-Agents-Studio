@@ -400,16 +400,31 @@ def main():
                 quality,
                 output_format,
             )
-            job = image_job_manager.submit(
-                owner=owner,
-                prompt=prompt,
-                work=lambda: generate_gpt_image_result(
+            try:
+                job = image_job_manager.submit(
+                    owner=owner,
+                    prompt=prompt,
+                    work=lambda: generate_gpt_image_result(
+                        prompt,
+                        llm_kwargs,
+                        plugin_kwargs,
+                        owner,
+                    ),
+                )
+            except RuntimeError as exc:
+                safe_error = html.escape(str(exc))
+                chatbot_value = list(chatbot_value or [])
+                chatbot_value.append([
                     prompt,
-                    llm_kwargs,
-                    plugin_kwargs,
-                    owner,
-                ),
-            )
+                    f"[Local Message] 图片任务提交失败：{safe_error}",
+                ])
+                return (
+                    cookies_value,
+                    chatbot_value,
+                    history_value,
+                    "后台图片任务已满，请稍后重试",
+                    "",
+                )
             chatbot_value = list(chatbot_value or [])
             chatbot_value.append([
                 prompt,

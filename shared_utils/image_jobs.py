@@ -55,11 +55,17 @@ class ImageJobManager:
                 return None
             return job
 
-    def wait(self, job_id: str, *, owner: Optional[str] = None) -> Optional[ImageJob]:
+    def wait(
+        self,
+        job_id: str,
+        *,
+        owner: Optional[str] = None,
+        timeout: Optional[float] = None,
+    ) -> Optional[ImageJob]:
         job = self.get(job_id, owner=owner)
         if job is None:
             return None
-        job.done.wait()
+        job.done.wait(timeout)
         return self.get(job_id, owner=owner)
 
     def _run_job(self, job_id: str, work: Callable[[], Any]):

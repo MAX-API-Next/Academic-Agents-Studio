@@ -66,7 +66,11 @@ function get_saved_image_job_ids() {
 }
 
 function save_image_job_ids(jobIds) {
-    localStorage.setItem(IMAGE_JOB_STORAGE_KEY, JSON.stringify([...new Set(jobIds)]));
+    try {
+        localStorage.setItem(IMAGE_JOB_STORAGE_KEY, JSON.stringify([...new Set(jobIds)]));
+    } catch (error) {
+        console.warn("Failed to save pending image jobs", error);
+    }
 }
 
 function remember_image_job(jobId) {
@@ -112,7 +116,7 @@ function start_image_job_event_stream(jobId) {
     source.onerror = error => {
         consecutiveErrors += 1;
         console.warn("Image job event stream reconnecting", jobId, error);
-        if (consecutiveErrors >= 3) {
+        if (source.readyState === EventSource.CLOSED || consecutiveErrors >= 3) {
             source.close();
             delete imageJobEventSources[jobId];
             forget_image_job(jobId);
@@ -662,7 +666,7 @@ function get_elements(consider_state_panel = false) {
         // 调整高度
         const chatbot_height_exceed = 15;
         const chatbot_height_exceed_m = 10;
-        b_panel = Math.max(panel1.bottom, panel2.bottom, panel3.bottom)
+        const b_panel = Math.max(panel1.bottom, panel2.bottom, drawingPanel.bottom, panel3.bottom);
         if (b_panel >= window.innerHeight - chatbot_height_exceed) {
             height_target = window.innerHeight - chatbot.getBoundingClientRect().top - chatbot_height_exceed_m;
         }

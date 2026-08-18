@@ -160,18 +160,24 @@ def start_app(app_block, CONCURRENT_COUNT, AUTHENTICATION, PORT, SSL_KEYFILE, SS
             raise HTTPException(status_code=404, detail="Image job not found")
 
         async def completion_event():
-            job = await asyncio.to_thread(
-                image_job_manager.wait,
-                job_id,
-                owner=owner,
-            )
-            if job is None:
+            while True:
+                job = await asyncio.to_thread(
+                    image_job_manager.wait,
+                    job_id,
+                    owner=owner,
+                    timeout=15.0,
+                )
+                if job is None:
+                    return
+                if not job.done.is_set():
+                    yield ": keep-alive\n\n"
+                    continue
+                payload = json.dumps(
+                    {"job_id": job.job_id, "status": job.status},
+                    ensure_ascii=False,
+                )
+                yield f"event: image_job\ndata: {payload}\n\n"
                 return
-            payload = json.dumps(
-                {"job_id": job.job_id, "status": job.status},
-                ensure_ascii=False,
-            )
-            yield f"event: image_job\ndata: {payload}\n\n"
 
         return StreamingResponse(
             completion_event(),
