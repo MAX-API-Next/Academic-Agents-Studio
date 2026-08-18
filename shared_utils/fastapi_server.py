@@ -138,6 +138,50 @@ def start_app(app_block, CONCURRENT_COUNT, AUTHENTICATION, PORT, SSL_KEYFILE, SS
     app_block.is_sagemaker = False
 
     gradio_app = App.create_app(app_block)
+
+    # 图片生成在后台线程运行；SSE 连接只在任务完成时向浏览器推送一次事件。
+    import asyncio
+    import json
+    from fastapi import HTTPException, Request
+    from starlette.responses import StreamingResponse
+    from shared_utils.image_jobs import image_job_manager
+
+    @gradio_app.get("/image-events/{job_id}")
+    async def image_events(job_id: str, request: Request):
+        owner = None
+        if len(AUTHENTICATION) > 0:
+            token = request.cookies.get("access-token") or request.cookies.get(
+                "access-token-unsecure"
+            )
+            owner = gradio_app.tokens.get(token)
+            if owner is None:
+                raise HTTPException(status_code=404, detail="Image job not found")
+        if image_job_manager.get(job_id, owner=owner) is None:
+            raise HTTPException(status_code=404, detail="Image job not found")
+
+        async def completion_event():
+            job = await asyncio.to_thread(
+                image_job_manager.wait,
+                job_id,
+                owner=owner,
+            )
+            if job is None:
+                return
+            payload = json.dumps(
+                {"job_id": job.job_id, "status": job.status},
+                ensure_ascii=False,
+            )
+            yield f"event: image_job\ndata: {payload}\n\n"
+
+        return StreamingResponse(
+            completion_event(),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "X-Accel-Buffering": "no",
+            },
+        )
+
     for route in list(gradio_app.router.routes):
         if route.path == "/proxy={url_path:path}":
             gradio_app.router.routes.remove(route)

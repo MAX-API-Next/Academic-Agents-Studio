@@ -53,6 +53,78 @@ async function get_data_from_gradio_component(ELEM_ID) {
 }
 
 
+const IMAGE_JOB_STORAGE_KEY = "gptac_pending_image_jobs";
+const imageJobEventSources = {};
+
+function get_saved_image_job_ids() {
+    try {
+        const value = JSON.parse(localStorage.getItem(IMAGE_JOB_STORAGE_KEY) || "[]");
+        return Array.isArray(value) ? value.filter(item => typeof item === "string") : [];
+    } catch (error) {
+        return [];
+    }
+}
+
+function save_image_job_ids(jobIds) {
+    localStorage.setItem(IMAGE_JOB_STORAGE_KEY, JSON.stringify([...new Set(jobIds)]));
+}
+
+function remember_image_job(jobId) {
+    save_image_job_ids([...get_saved_image_job_ids(), jobId]);
+}
+
+function forget_image_job(jobId) {
+    save_image_job_ids(get_saved_image_job_ids().filter(item => item !== jobId));
+}
+
+function start_image_job_event_stream(jobId) {
+    if (!jobId || imageJobEventSources[jobId]) {
+        return;
+    }
+    remember_image_job(jobId);
+    const basePath = window.location.pathname.endsWith("/")
+        ? window.location.pathname
+        : `${window.location.pathname}/`;
+    const eventUrl = `${window.location.origin}${basePath}image-events/${encodeURIComponent(jobId)}`;
+    const source = new EventSource(eventUrl);
+    imageJobEventSources[jobId] = source;
+    let consecutiveErrors = 0;
+
+    source.onopen = () => {
+        consecutiveErrors = 0;
+    };
+    source.addEventListener("image_job", event => {
+        const payload = JSON.parse(event.data);
+        if (payload.job_id !== jobId) {
+            return;
+        }
+        source.close();
+        delete imageJobEventSources[jobId];
+        forget_image_job(jobId);
+        push_data_to_gradio_component(jobId, "drawing_job_id", "str");
+        setTimeout(() => {
+            const resultButton = document.getElementById("drawing_result_btn");
+            if (resultButton) {
+                resultButton.click();
+            }
+        }, 50);
+    });
+    source.onerror = error => {
+        consecutiveErrors += 1;
+        console.warn("Image job event stream reconnecting", jobId, error);
+        if (consecutiveErrors >= 3) {
+            source.close();
+            delete imageJobEventSources[jobId];
+            forget_image_job(jobId);
+        }
+    };
+}
+
+function resume_image_job_event_streams() {
+    get_saved_image_job_ids().forEach(start_image_job_event_stream);
+}
+
+
 function update_array(arr, item, mode) {
     //   // Remove "输入清除键"
     //   p = updateArray(p, "输入清除键", "remove");

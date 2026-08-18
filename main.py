@@ -54,6 +54,23 @@ def build_drawing_plugin_kwargs(resolution, quality, output_format):
         "output_format": output_format,
     }
 
+
+def build_drawing_pending_message(job_id, model):
+    marker = f'<span data-image-job-id="{job_id}" style="display:none"></span>'
+    return marker + f"[Local Message] 正在通过 AIOAGI 的 {model} 后台生成图片，请稍候……"
+
+
+def replace_drawing_job_message(chatbot, job_id, prompt, reply):
+    messages = list(chatbot or [])
+    marker = f'data-image-job-id="{job_id}"'
+    for index in range(len(messages) - 1, -1, -1):
+        pair = messages[index]
+        if len(pair) > 1 and marker in str(pair[1]):
+            messages[index] = [prompt, reply]
+            return messages
+    messages.append([prompt, reply])
+    return messages
+
 def main():
     import gradio as gr
     # if gr.__version__ not in ['1.0.0']:
@@ -229,6 +246,15 @@ def main():
                         elem_id="drawing_generate_btn",
                         info_str="绘图功能区: 使用 GPT Image 2 生成图片",
                     ).style(size="sm")
+                    drawing_job_id = gr.Textbox(
+                        visible=False,
+                        elem_id="drawing_job_id",
+                    )
+                    drawing_result_btn = gr.Button(
+                        "接收图片生成结果",
+                        visible=False,
+                        elem_id="drawing_result_btn",
+                    )
                 with gr.Accordion("函数插件区", open=False, elem_id="plugin-panel") as area_crazy_fn:
                     with gr.Row():
                         gr.Markdown("<small>插件可读取“输入区”文本/路径作为参数（上传文件自动修正路径）</small>")
@@ -344,36 +370,104 @@ def main():
             click_handle = btn.click(fn=ArgsGeneralWrapper(predict), inputs=[*input_combo, gr.State(True), gr.State(btn.value)], outputs=output_combo)
             cancel_handles.append(click_handle)
 
-        # 绘图功能区：使用常驻参数控件直接调用 GPT Image 2。
-        from crazy_functions.Image_Generate import 图片生成_GPT_IMAGE
+        # 绘图功能区：提交后台任务后立即返回，由 SSE 在完成时主动通知浏览器。
+        import html
+        from crazy_functions.Image_Generate import (
+            build_image_result_html,
+            generate_gpt_image_result,
+        )
+        from shared_utils.image_jobs import image_job_manager
 
-        def route_drawing_request(
+        image_model = get_conf("IMAGE_MODEL")
+
+        def submit_drawing_job(
             request: gr.Request, resolution, quality, output_format,
-            cookies_value, max_length, llm_model, prompt, top_p_value,
-            temperature_value, chatbot_value, history_value, system_prompt_value,
+            cookies_value, prompt, chatbot_value, history_value,
         ):
-            plugin_kwargs = build_drawing_plugin_kwargs(resolution, quality, output_format)
-            yield from ArgsGeneralWrapper(图片生成_GPT_IMAGE)(
-                request, cookies_value, max_length, llm_model, prompt, "",
-                top_p_value, temperature_value, chatbot_value, history_value,
-                system_prompt_value, plugin_kwargs,
+            prompt = (prompt or "").strip()
+            if not prompt:
+                return (
+                    cookies_value,
+                    chatbot_value,
+                    history_value,
+                    "图片描述不能为空",
+                    "",
+                )
+            owner = request.username or cookies_value.get("user_name") or "default_user"
+            llm_kwargs = {"api_key": cookies_value.get("api_key", "")}
+            plugin_kwargs = build_drawing_plugin_kwargs(
+                resolution,
+                quality,
+                output_format,
+            )
+            job = image_job_manager.submit(
+                owner=owner,
+                prompt=prompt,
+                work=lambda: generate_gpt_image_result(
+                    prompt,
+                    llm_kwargs,
+                    plugin_kwargs,
+                    owner,
+                ),
+            )
+            chatbot_value = list(chatbot_value or [])
+            chatbot_value.append([
+                prompt,
+                build_drawing_pending_message(job.job_id, image_model),
+            ])
+            return (
+                cookies_value,
+                chatbot_value,
+                history_value,
+                "图片任务已提交，正在后台生成",
+                job.job_id,
             )
 
+        def receive_drawing_job(
+            request: gr.Request, job_id, cookies_value, chatbot_value, history_value,
+        ):
+            owner = request.username or cookies_value.get("user_name") or "default_user"
+            job = image_job_manager.get(job_id, owner=owner)
+            if job is None:
+                return cookies_value, chatbot_value, history_value, "图片任务不存在或已过期"
+            if not job.done.is_set():
+                return cookies_value, chatbot_value, history_value, "图片仍在后台生成"
+            if job.status == "completed":
+                reply = build_image_result_html(job.result)
+                status_message = "图片生成完成，可预览或下载原图"
+            else:
+                safe_error = html.escape(job.error or "未知错误")
+                reply = f"[Local Message] 图片生成失败：{safe_error}"
+                status_message = "图片生成失败"
+            chatbot_value = replace_drawing_job_message(
+                chatbot_value,
+                job.job_id,
+                job.prompt,
+                reply,
+            )
+            return cookies_value, chatbot_value, history_value, status_message
+
         drawing_click_handle = drawing_generate_btn.click(
-            route_drawing_request,
+            submit_drawing_job,
             inputs=[
                 drawing_resolution, drawing_quality, drawing_format,
-                cookies, max_length_sl, md_dropdown, drawing_prompt, top_p,
-                temperature, chatbot, history, system_prompt,
+                cookies, drawing_prompt, chatbot, history,
             ],
-            outputs=output_combo,
+            outputs=[*output_combo, drawing_job_id],
+            queue=False,
         )
         drawing_click_handle.then(
-            on_report_generated,
-            [cookies, file_upload, chatbot],
-            [cookies, file_upload, chatbot],
+            None,
+            [drawing_job_id],
+            None,
+            _js="(job_id)=>start_image_job_event_stream(job_id)",
         )
-        cancel_handles.append(drawing_click_handle)
+        drawing_result_btn.click(
+            receive_drawing_job,
+            inputs=[drawing_job_id, cookies, chatbot, history],
+            outputs=output_combo,
+            queue=False,
+        )
 
         # 文件上传区，接收文件后与chatbot的互动
         file_upload.upload(on_file_uploaded, [file_upload, chatbot, txt, txt2, checkboxes, cookies], [chatbot, txt, txt2, cookies]).then(None, None, None,   _js=r"()=>{toast_push('上传完毕 ...'); cancel_loading_status();}")
