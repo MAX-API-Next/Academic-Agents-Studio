@@ -102,7 +102,7 @@ function click_drawing_result_when_ready(jobId, deadline = Date.now() + 10000) {
         }
         if (Date.now() >= deadline) {
             console.warn("Image job result component did not update", jobId);
-            forget_image_job(jobId);
+            // Keep the recovery record: the server-side job may already be complete.
             set_drawing_generate_button_disabled(false);
             return;
         }
@@ -110,7 +110,7 @@ function click_drawing_result_when_ready(jobId, deadline = Date.now() + 10000) {
     }).catch(error => {
         if (Date.now() >= deadline) {
             console.warn("Unable to read image job result component", jobId, error);
-            forget_image_job(jobId);
+            // Keep the recovery record so a page reload can resume the event stream.
             set_drawing_generate_button_disabled(false);
             return;
         }
