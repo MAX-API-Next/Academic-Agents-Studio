@@ -23,6 +23,7 @@ WORKDIR /gpt
 
 # 安装大部分依赖，利用Docker缓存加速以后的构建 （以下两行，可以删除）
 COPY requirements.txt ./
+COPY docs/gradio-3.32.15-py3-none-any.whl ./docs/
 RUN uv venv --python=3.12 && uv pip install --verbose -r requirements.txt -i https://mirrors.aliyun.com/pypi/simple/
 RUN uv pip install aliyun-python-sdk-core==2.13.3 pyOpenSSL webrtcvad scipy -i https://mirrors.aliyun.com/pypi/simple/
 RUN uv pip install alibabacloud-nls-python-sdk -i https://mirrors.aliyun.com/pypi/simple/

@@ -8,8 +8,9 @@ ENV DEBIAN_FRONTEND=noninteractive
 SHELL ["/bin/bash", "-c"]
 WORKDIR /gpt
 
-# 先复制依赖文件
+# 先复制依赖文件及 requirements.txt 引用的本地安装包
 COPY requirements.txt .
+COPY docs/gradio-3.32.15-py3-none-any.whl ./docs/
 
 # 安装依赖
 RUN pip install --break-system-packages openai numpy arxiv rich colorama Markdown pygments pymupdf python-docx pdfminer \
