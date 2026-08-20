@@ -55,6 +55,7 @@ async function get_data_from_gradio_component(ELEM_ID) {
 
 const IMAGE_JOB_STORAGE_KEY = "gptac_pending_image_jobs";
 const imageJobEventSources = {};
+const imageJobTerminalEvents = {};
 
 function get_saved_image_job_ids() {
     try {
@@ -92,6 +93,78 @@ function set_drawing_generate_button_disabled(disabled) {
     }
 }
 
+function image_job_base_path() {
+    return window.location.pathname.endsWith("/")
+        ? window.location.pathname
+        : `${window.location.pathname}/`;
+}
+
+function complete_image_job_event(jobId) {
+    const source = imageJobEventSources[jobId];
+    if (source) {
+        source.close();
+        delete imageJobEventSources[jobId];
+    }
+    if (imageJobTerminalEvents[jobId]) {
+        return;
+    }
+    imageJobTerminalEvents[jobId] = true;
+    push_data_to_gradio_component(jobId, "drawing_job_id", "str");
+    click_drawing_result_when_ready(jobId);
+}
+
+async function cancel_image_job(jobId, button) {
+    if (!jobId) {
+        return;
+    }
+    const cancelButton = button || document.querySelector(
+        `.image-job-cancel[data-image-job-id="${jobId}"]`
+    );
+    if (cancelButton) {
+        cancelButton.disabled = true;
+        cancelButton.textContent = "停止中…";
+    }
+    try {
+        const response = await fetch(
+            `${window.location.origin}${image_job_base_path()}image-events/${encodeURIComponent(jobId)}/cancel`,
+            {method: "POST", credentials: "same-origin"},
+        );
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok) {
+            throw new Error(payload.detail || `HTTP ${response.status}`);
+        }
+        if (payload.status === "cancelled") {
+            if (cancelButton) {
+                cancelButton.textContent = "已停止";
+            }
+            complete_image_job_event(jobId);
+            return;
+        }
+        if (cancelButton) {
+            cancelButton.disabled = false;
+            cancelButton.textContent = "任务已结束";
+        }
+    } catch (error) {
+        console.warn("Unable to cancel image job", jobId, error);
+        if (cancelButton) {
+            cancelButton.disabled = false;
+            cancelButton.textContent = "停止失败，重试";
+        }
+    }
+}
+
+document.addEventListener("click", event => {
+    const button = event.composedPath
+        ? event.composedPath().find(element => element.matches && element.matches(".image-job-cancel"))
+        : event.target.closest && event.target.closest(".image-job-cancel");
+    if (!button) {
+        return;
+    }
+    event.preventDefault();
+    event.stopPropagation();
+    cancel_image_job(button.dataset.imageJobId, button);
+});
+
 function click_drawing_result_when_ready(jobId, deadline = Date.now() + 10000) {
     get_data_from_gradio_component("drawing_job_id").then(currentJobId => {
         const resultButton = document.getElementById("drawing_result_btn");
@@ -119,14 +192,11 @@ function click_drawing_result_when_ready(jobId, deadline = Date.now() + 10000) {
 }
 
 function start_image_job_event_stream(jobId) {
-    if (!jobId || imageJobEventSources[jobId]) {
+    if (!jobId || imageJobEventSources[jobId] || imageJobTerminalEvents[jobId]) {
         return;
     }
     remember_image_job(jobId);
-    const basePath = window.location.pathname.endsWith("/")
-        ? window.location.pathname
-        : `${window.location.pathname}/`;
-    const eventUrl = `${window.location.origin}${basePath}image-events/${encodeURIComponent(jobId)}`;
+    const eventUrl = `${window.location.origin}${image_job_base_path()}image-events/${encodeURIComponent(jobId)}`;
     const source = new EventSource(eventUrl);
     imageJobEventSources[jobId] = source;
     let consecutiveErrors = 0;
@@ -139,10 +209,7 @@ function start_image_job_event_stream(jobId) {
         if (payload.job_id !== jobId) {
             return;
         }
-        source.close();
-        delete imageJobEventSources[jobId];
-        push_data_to_gradio_component(jobId, "drawing_job_id", "str");
-        click_drawing_result_when_ready(jobId);
+        complete_image_job_event(jobId);
     });
     source.onerror = error => {
         consecutiveErrors += 1;

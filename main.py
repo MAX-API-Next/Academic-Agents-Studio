@@ -56,8 +56,18 @@ def build_drawing_plugin_kwargs(resolution, quality, output_format):
 
 
 def build_drawing_pending_message(job_id, model):
-    marker = f'<span data-image-job-id="{job_id}" style="display:none"></span>'
-    return marker + f"[Local Message] 正在通过 AIOAGI 的 {model} 后台生成图片，请稍候……"
+    import html
+
+    safe_job_id = html.escape(str(job_id), quote=True)
+    safe_model = html.escape(str(model), quote=True)
+    return (
+        f'<div class="image-job-pending" data-image-job-id="{safe_job_id}">'
+        '<span class="image-job-spinner" aria-hidden="true"></span>'
+        f'<span class="image-job-pending-text">正在通过 AIOAGI 的 {safe_model} 后台生成图片，请稍候……</span>'
+        f'<button type="button" class="image-job-cancel" '
+        f'data-image-job-id="{safe_job_id}" aria-label="停止图片生成">停止</button>'
+        "</div>"
+    )
 
 
 def replace_drawing_job_message(chatbot, job_id, prompt, reply):
@@ -381,6 +391,7 @@ def main():
 
         # 绘图功能区：提交后台任务后立即返回，由 SSE 在完成时主动通知浏览器。
         import html
+        import threading
         from crazy_functions.Image_Generate import (
             build_image_result_html,
             generate_gpt_image_result,
@@ -410,16 +421,23 @@ def main():
                 quality,
                 output_format,
             )
+            cancel_event = threading.Event()
+
+            def run_image_generation():
+                return generate_gpt_image_result(
+                    prompt,
+                    llm_kwargs,
+                    plugin_kwargs,
+                    owner,
+                    cancel_event=cancel_event,
+                )
+
             try:
                 job = image_job_manager.submit(
                     owner=owner,
                     prompt=prompt,
-                    work=lambda: generate_gpt_image_result(
-                        prompt,
-                        llm_kwargs,
-                        plugin_kwargs,
-                        owner,
-                    ),
+                    work=run_image_generation,
+                    cancel_event=cancel_event,
                 )
             except RuntimeError as exc:
                 safe_error = html.escape(str(exc))
@@ -474,6 +492,9 @@ def main():
             if job.status == "completed":
                 reply = build_image_result_html(job.result)
                 status_message = "图片生成完成，可预览或下载原图"
+            elif job.status == "cancelled":
+                reply = "图片任务已停止，后续返回的结果将被忽略。"
+                status_message = "已停止接收图片结果"
             else:
                 safe_error = html.escape(job.error or "未知错误")
                 reply = f"[Local Message] 图片生成失败：{safe_error}"

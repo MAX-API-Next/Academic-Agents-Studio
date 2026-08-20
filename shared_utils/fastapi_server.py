@@ -212,6 +212,26 @@ def start_app(app_block, CONCURRENT_COUNT, AUTHENTICATION, PORT, SSL_KEYFILE, SS
             },
         )
 
+    @gradio_app.post("/image-events/{job_id}/cancel")
+    async def cancel_image_event(job_id: str, request: Request):
+        owner = None
+        if len(AUTHENTICATION) > 0:
+            token = request.cookies.get("access-token") or request.cookies.get(
+                "access-token-unsecure"
+            )
+            owner = gradio_app.tokens.get(token)
+            if owner is None:
+                raise HTTPException(status_code=404, detail="Image job not found")
+        if image_job_manager.get(job_id, owner=owner) is None:
+            raise HTTPException(status_code=404, detail="Image job not found")
+
+        image_job_manager.cancel(job_id, owner=owner)
+        job = image_job_manager.get(job_id, owner=owner)
+        return {
+            "job_id": job_id,
+            "status": job.status if job is not None else "cancelled",
+        }
+
     for route in list(gradio_app.router.routes):
         if route.path == "/proxy={url_path:path}":
             gradio_app.router.routes.remove(route)

@@ -16,7 +16,14 @@ from shared_utils.image_generation import (
 )
 
 
-def generate_gpt_image_result(prompt, llm_kwargs, plugin_kwargs, user_name):
+def generate_gpt_image_result(
+    prompt,
+    llm_kwargs,
+    plugin_kwargs,
+    user_name,
+    *,
+    cancel_event=None,
+):
     model, endpoint, timeout, proxies = get_conf(
         "IMAGE_MODEL",
         "IMAGE_API_URL",
@@ -36,6 +43,7 @@ def generate_gpt_image_result(prompt, llm_kwargs, plugin_kwargs, user_name):
         output_format=plugin_kwargs.get("output_format", "png"),
         timeout=timeout,
         proxies=proxies,
+        cancel_event=cancel_event,
     )
 
 

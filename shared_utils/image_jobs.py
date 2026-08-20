@@ -19,6 +19,7 @@ class ImageJob:
     error: Optional[str] = None
     completed_at: Optional[float] = None
     done: threading.Event = field(default_factory=threading.Event, repr=False)
+    cancel_event: threading.Event = field(default_factory=threading.Event, repr=False)
 
 
 class ImageJobManager:
@@ -34,7 +35,14 @@ class ImageJobManager:
         self._jobs = {}
         self._lock = threading.RLock()
 
-    def submit(self, *, owner: str, prompt: str, work: Callable[[], Any]) -> ImageJob:
+    def submit(
+        self,
+        *,
+        owner: str,
+        prompt: str,
+        work: Callable[[], Any],
+        cancel_event: Optional[threading.Event] = None,
+    ) -> ImageJob:
         with self._lock:
             self._prune_locked()
             if len(self._jobs) >= self._max_jobs:
@@ -43,6 +51,7 @@ class ImageJobManager:
                 job_id=uuid.uuid4().hex,
                 owner=owner,
                 prompt=prompt,
+                cancel_event=cancel_event or threading.Event(),
             )
             self._jobs[job.job_id] = job
         self._executor.submit(self._run_job, job.job_id, work)
@@ -81,23 +90,54 @@ class ImageJobManager:
             del self._jobs[job_id]
             return True
 
+    def cancel(self, job_id: str, *, owner: Optional[str] = None) -> bool:
+        """Cancel a job and publish the terminal state immediately.
+
+        The worker may still be unwinding an in-flight HTTP request. Marking the
+        job terminal prevents its result from reaching the browser.
+        """
+        with self._lock:
+            job = self._jobs.get(job_id)
+            if (
+                job is None
+                or (owner is not None and job.owner != owner)
+                or job.done.is_set()
+            ):
+                return False
+            job.cancel_event.set()
+            job.status = "cancelled"
+            job.error = "用户已停止图片生成"
+            job.completed_at = time.time()
+            job.done.set()
+        return True
+
     def _run_job(self, job_id: str, work: Callable[[], Any]):
         with self._lock:
             job = self._jobs.get(job_id)
             if job is None:
                 return
+            if job.cancel_event.is_set():
+                job.status = "cancelled"
+                job.error = "用户已停止图片生成"
+                job.completed_at = time.time()
+                job.done.set()
+                return
             job.status = "running"
         try:
             result = work()
         except Exception as exc:
-            logger.exception("Background image job failed: job_id={}", job_id)
             with self._lock:
+                if job.status == "cancelled":
+                    return
                 job.status = "failed"
                 job.error = str(exc)
                 job.completed_at = time.time()
                 job.done.set()
+            logger.exception("Background image job failed: job_id={}", job_id)
             return
         with self._lock:
+            if job.status == "cancelled":
+                return
             job.status = "completed"
             job.result = result
             job.completed_at = time.time()

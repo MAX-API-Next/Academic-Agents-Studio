@@ -117,6 +117,14 @@ class DrawingAreaTests(unittest.TestCase):
         self.assertEqual(result[0], ["draw", "<img>"])
         self.assertEqual(result[1], ["later question", "later answer"])
 
+    def test_pending_drawing_message_contains_spinner_and_cancel_control(self):
+        pending = build_drawing_pending_message("job-123", "gpt-image-2")
+
+        self.assertIn('data-image-job-id="job-123"', pending)
+        self.assertIn("image-job-spinner", pending)
+        self.assertIn("image-job-cancel", pending)
+        self.assertIn("停止", pending)
+
     def test_image_job_manager_signals_completion_without_polling(self):
         manager = ImageJobManager(max_workers=1)
         job = manager.submit(owner="tester", prompt="draw", work=lambda: "image")
@@ -135,6 +143,25 @@ class DrawingAreaTests(unittest.TestCase):
         self.assertTrue(manager.discard(job.job_id, owner="tester"))
         self.assertIsNone(manager.get(job.job_id, owner="tester"))
         self.assertFalse(manager.discard(job.job_id, owner="tester"))
+
+    def test_image_job_manager_cancels_job_before_worker_finishes(self):
+        work_started = threading.Event()
+        release_work = threading.Event()
+        manager = ImageJobManager(max_workers=1)
+        job = manager.submit(
+            owner="tester",
+            prompt="draw",
+            work=lambda: (work_started.set(), release_work.wait(1.0))[1],
+        )
+        self.assertTrue(work_started.wait(1.0))
+
+        self.assertTrue(manager.cancel(job.job_id, owner="tester"))
+        cancelled = manager.get(job.job_id, owner="tester")
+        self.assertEqual(cancelled.status, "cancelled")
+        self.assertTrue(cancelled.done.is_set())
+        self.assertFalse(manager.cancel(job.job_id, owner="tester"))
+
+        release_work.set()
 
     def test_image_job_manager_wait_can_time_out_while_job_is_pending(self):
         work_started = threading.Event()

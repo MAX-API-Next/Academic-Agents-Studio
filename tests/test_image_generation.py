@@ -2,6 +2,7 @@ import base64
 import json
 import os
 import tempfile
+import threading
 import unittest
 
 import requests
@@ -53,6 +54,49 @@ class FakeSession:
 
 
 class ImageGenerationClientTests(unittest.TestCase):
+    def test_cancelled_request_does_not_reach_provider(self):
+        session = FakeSession(FakeResponse({"data": []}))
+        cancel_event = threading.Event()
+        cancel_event.set()
+
+        with tempfile.TemporaryDirectory() as output_dir:
+            with self.assertRaisesRegex(ImageGenerationError, "已停止"):
+                generate_image(
+                    prompt="illustration",
+                    api_key="secret",
+                    output_dir=output_dir,
+                    endpoint="https://api.aiearth.dev/v1/images/generations",
+                    session=session,
+                    cancel_event=cancel_event,
+                )
+
+        self.assertIsNone(session.post_call)
+
+    def test_cancelled_response_is_not_saved(self):
+        cancel_event = threading.Event()
+
+        class CancellingSession(FakeSession):
+            def post(self, url, **kwargs):
+                response = super().post(url, **kwargs)
+                cancel_event.set()
+                return response
+
+        session = CancellingSession(FakeResponse({
+            "data": [{"b64_json": base64.b64encode(b"image").decode("ascii")}],
+        }))
+        with tempfile.TemporaryDirectory() as output_dir:
+            with self.assertRaisesRegex(ImageGenerationError, "已停止"):
+                generate_image(
+                    prompt="illustration",
+                    api_key="secret",
+                    output_dir=output_dir,
+                    endpoint="https://api.aiearth.dev/v1/images/generations",
+                    session=session,
+                    cancel_event=cancel_event,
+                )
+
+            self.assertEqual(os.listdir(output_dir), [])
+
     def test_base64_response_is_saved_and_request_uses_aiearth_contract(self):
         image_bytes = b"test-image-bytes"
         session = FakeSession(FakeResponse(
