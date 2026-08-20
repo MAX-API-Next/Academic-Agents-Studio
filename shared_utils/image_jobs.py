@@ -68,6 +68,19 @@ class ImageJobManager:
         job.done.wait(timeout)
         return self.get(job_id, owner=owner)
 
+    def discard(self, job_id: str, *, owner: Optional[str] = None) -> bool:
+        """Remove a completed job after its result has been consumed."""
+        with self._lock:
+            job = self._jobs.get(job_id)
+            if (
+                job is None
+                or (owner is not None and job.owner != owner)
+                or not job.done.is_set()
+            ):
+                return False
+            del self._jobs[job_id]
+            return True
+
     def _run_job(self, job_id: str, work: Callable[[], Any]):
         with self._lock:
             job = self._jobs.get(job_id)

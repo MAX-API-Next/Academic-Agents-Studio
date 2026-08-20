@@ -1,3 +1,5 @@
+import html
+
 from toolbox import (
     CatchException,
     get_conf,
@@ -8,7 +10,10 @@ from toolbox import (
     update_ui,
 )
 from crazy_functions.multi_stage.multi_stage_utils import GptAcademicState
-from shared_utils.image_generation import generate_image as generate_image_via_api
+from shared_utils.image_generation import (
+    ImageGenerationError,
+    generate_image as generate_image_via_api,
+)
 
 
 def generate_gpt_image_result(prompt, llm_kwargs, plugin_kwargs, user_name):
@@ -63,12 +68,20 @@ def 图片生成_GPT_IMAGE(prompt, llm_kwargs, plugin_kwargs, chatbot, history, 
     ))
     yield from update_ui(chatbot=chatbot, history=history)
 
-    result = generate_gpt_image_result(
-        prompt,
-        llm_kwargs,
-        plugin_kwargs,
-        get_user(chatbot),
-    )
+    try:
+        result = generate_gpt_image_result(
+            prompt,
+            llm_kwargs,
+            plugin_kwargs,
+            get_user(chatbot),
+        )
+    except ImageGenerationError as exc:
+        chatbot[-1] = [
+            prompt,
+            f"[Local Message] 图片生成失败：{html.escape(str(exc))}",
+        ]
+        yield from update_ui(chatbot=chatbot, history=history, msg="图片生成失败")
+        return
     promote_file_to_downloadzone(result.file_path, chatbot=chatbot)
     image_result_html = build_image_result_html(result)
     # Replace the progress message instead of appending a second conversation item.

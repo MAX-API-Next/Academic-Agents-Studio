@@ -42,7 +42,7 @@ async function get_gradio_component(ELEM_ID) {
             window.dispatchEvent(myEvent);
         });
     }
-    result = await waitFor(ELEM_ID);
+    const result = await waitFor(ELEM_ID);
     return result;
 }
 
@@ -81,6 +81,42 @@ function forget_image_job(jobId) {
     save_image_job_ids(get_saved_image_job_ids().filter(item => item !== jobId));
 }
 
+function set_drawing_generate_button_disabled(disabled) {
+    const container = document.getElementById("drawing_generate_btn");
+    const button = container && (
+        container.tagName === "BUTTON" ? container : container.querySelector("button")
+    );
+    if (button) {
+        button.disabled = disabled;
+        button.setAttribute("aria-disabled", String(disabled));
+    }
+}
+
+function click_drawing_result_when_ready(jobId, attempt = 0) {
+    const maxAttempts = 120;
+    get_data_from_gradio_component("drawing_job_id").then(currentJobId => {
+        const resultButton = document.getElementById("drawing_result_btn");
+        if (currentJobId === jobId && resultButton) {
+            forget_image_job(jobId);
+            resultButton.click();
+            return;
+        }
+        if (attempt >= maxAttempts) {
+            console.warn("Image job result component did not update", jobId);
+            set_drawing_generate_button_disabled(false);
+            return;
+        }
+        window.requestAnimationFrame(() => click_drawing_result_when_ready(jobId, attempt + 1));
+    }).catch(error => {
+        if (attempt >= maxAttempts) {
+            console.warn("Unable to read image job result component", jobId, error);
+            set_drawing_generate_button_disabled(false);
+            return;
+        }
+        window.requestAnimationFrame(() => click_drawing_result_when_ready(jobId, attempt + 1));
+    });
+}
+
 function start_image_job_event_stream(jobId) {
     if (!jobId || imageJobEventSources[jobId]) {
         return;
@@ -104,14 +140,8 @@ function start_image_job_event_stream(jobId) {
         }
         source.close();
         delete imageJobEventSources[jobId];
-        forget_image_job(jobId);
         push_data_to_gradio_component(jobId, "drawing_job_id", "str");
-        setTimeout(() => {
-            const resultButton = document.getElementById("drawing_result_btn");
-            if (resultButton) {
-                resultButton.click();
-            }
-        }, 50);
+        click_drawing_result_when_ready(jobId);
     });
     source.onerror = error => {
         consecutiveErrors += 1;

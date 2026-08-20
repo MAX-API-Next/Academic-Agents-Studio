@@ -1,3 +1,4 @@
+import asyncio
 import os
 import tempfile
 import threading
@@ -17,12 +18,14 @@ from main import (
     replace_drawing_job_message,
 )
 from crazy_functions.Image_Generate import 图片生成_GPT_IMAGE
-from toolbox import ChatBotWithCookies
 from shared_utils.image_generation import (
+    ImageGenerationError,
     SUPPORTED_IMAGE_FORMATS,
     SUPPORTED_IMAGE_QUALITIES,
     SUPPORTED_IMAGE_SIZES,
 )
+from shared_utils.fastapi_server import stream_image_job_events
+from toolbox import ChatBotWithCookies, default_user_name
 from shared_utils.image_jobs import ImageJobManager
 
 
@@ -49,35 +52,60 @@ class DrawingAreaTests(unittest.TestCase):
         )
 
     def test_image_plugin_replaces_progress_message_with_final_image(self):
-        with tempfile.NamedTemporaryFile(suffix=".png") as image_file:
-            result = SimpleNamespace(
-                file_path=image_file.name,
-                model="gpt-image-2",
-                size="1024x1024",
-            )
-            chatbot = ChatBotWithCookies({"user_name": "default_user"})
-            with (
-                patch(
-                    "crazy_functions.Image_Generate.generate_image_via_api",
-                    return_value=result,
-                ),
-                patch("crazy_functions.Image_Generate.promote_file_to_downloadzone"),
-            ):
-                outputs = list(图片生成_GPT_IMAGE(
-                    "draw a blue square",
-                    {"api_key": "sk-" + "a" * 48},
-                    {"resolution": "1024x1024", "quality": "medium", "output_format": "png"},
-                    chatbot,
-                    [],
-                    "system",
-                    SimpleNamespace(),
-                ))
+        with tempfile.TemporaryDirectory() as temporary_log_dir:
+            with tempfile.NamedTemporaryFile(suffix=".png") as image_file:
+                result = SimpleNamespace(
+                    file_path=image_file.name,
+                    model="gpt-image-2",
+                    size="1024x1024",
+                )
+                chatbot = ChatBotWithCookies({"user_name": default_user_name})
+                with (
+                    patch(
+                        "crazy_functions.Image_Generate.generate_image_via_api",
+                        return_value=result,
+                    ),
+                    patch(
+                        "crazy_functions.Image_Generate.get_log_folder",
+                        return_value=temporary_log_dir,
+                    ),
+                    patch("crazy_functions.Image_Generate.promote_file_to_downloadzone"),
+                ):
+                    outputs = list(图片生成_GPT_IMAGE(
+                        "draw a blue square",
+                        {"api_key": "sk-" + "a" * 48},
+                        {"resolution": "1024x1024", "quality": "medium", "output_format": "png"},
+                        chatbot,
+                        [],
+                        "system",
+                        SimpleNamespace(),
+                    ))
 
         self.assertEqual(len(outputs), 2)
         self.assertEqual(len(chatbot), 1)
         self.assertEqual(chatbot[0][0], "draw a blue square")
         self.assertIn('<img src="file=', chatbot[0][1])
         self.assertEqual(outputs[-1][3], "图片生成完成")
+
+    def test_image_plugin_shows_image_generation_errors_without_traceback(self):
+        chatbot = ChatBotWithCookies({"user_name": default_user_name})
+        with patch(
+            "crazy_functions.Image_Generate.generate_gpt_image_result",
+            side_effect=ImageGenerationError("未配置 AIOAGI API Key"),
+        ):
+            outputs = list(图片生成_GPT_IMAGE(
+                "draw a blue square",
+                {"api_key": ""},
+                {"resolution": "1024x1024", "quality": "medium", "output_format": "png"},
+                chatbot,
+                [],
+                "system",
+                SimpleNamespace(),
+            ))
+
+        self.assertEqual(outputs[-1][3], "图片生成失败")
+        self.assertIn("未配置 AIOAGI API Key", chatbot[-1][1])
+        self.assertNotIn("Traceback", chatbot[-1][1])
 
     def test_completed_background_job_replaces_its_pending_message(self):
         job_id = "job-123"
@@ -93,11 +121,20 @@ class DrawingAreaTests(unittest.TestCase):
         manager = ImageJobManager(max_workers=1)
         job = manager.submit(owner="tester", prompt="draw", work=lambda: "image")
 
-        completed = manager.wait(job.job_id, owner="tester")
+        completed = manager.wait(job.job_id, owner="tester", timeout=1.0)
 
         self.assertEqual(completed.status, "completed")
         self.assertEqual(completed.result, "image")
         self.assertIsNone(manager.get(job.job_id, owner="someone-else"))
+
+    def test_image_job_manager_discards_consumed_jobs(self):
+        manager = ImageJobManager(max_workers=1)
+        job = manager.submit(owner="tester", prompt="draw", work=lambda: "image")
+        self.assertIsNotNone(manager.wait(job.job_id, owner="tester", timeout=1.0))
+
+        self.assertTrue(manager.discard(job.job_id, owner="tester"))
+        self.assertIsNone(manager.get(job.job_id, owner="tester"))
+        self.assertFalse(manager.discard(job.job_id, owner="tester"))
 
     def test_image_job_manager_wait_can_time_out_while_job_is_pending(self):
         work_started = threading.Event()
@@ -132,6 +169,63 @@ class DrawingAreaTests(unittest.TestCase):
         self.assertTrue(failed.done.is_set())
         self.assertEqual(failed.status, "failed")
         self.assertIn("image generation failed", failed.error)
+
+    def test_image_job_event_stream_emits_completion_without_blocking_executor(self):
+        manager = ImageJobManager(max_workers=1)
+        job = manager.submit(owner="tester", prompt="draw", work=lambda: "image")
+
+        class ConnectedRequest:
+            async def is_disconnected(self):
+                return False
+
+        async def collect_events():
+            return [
+                event
+                async for event in stream_image_job_events(
+                    manager,
+                    job.job_id,
+                    "tester",
+                    ConnectedRequest(),
+                    heartbeat_interval=0.01,
+                    poll_interval=0.001,
+                )
+            ]
+
+        events = asyncio.run(collect_events())
+
+        self.assertEqual(len(events), 1)
+        self.assertIn("event: image_job", events[0])
+        self.assertIn(job.job_id, events[0])
+
+    def test_image_job_event_stream_stops_when_client_disconnects(self):
+        manager = ImageJobManager(max_workers=1)
+        release_work = threading.Event()
+        job = manager.submit(
+            owner="tester",
+            prompt="draw",
+            work=lambda: release_work.wait(1.0),
+        )
+
+        class DisconnectedRequest:
+            async def is_disconnected(self):
+                return True
+
+        async def collect_events():
+            return [
+                event
+                async for event in stream_image_job_events(
+                    manager,
+                    job.job_id,
+                    "tester",
+                    DisconnectedRequest(),
+                    poll_interval=0.001,
+                )
+            ]
+
+        events = asyncio.run(collect_events())
+        release_work.set()
+
+        self.assertEqual(events, [])
 
 
 if __name__ == "__main__":

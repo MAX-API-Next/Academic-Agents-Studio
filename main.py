@@ -77,7 +77,16 @@ def main():
     #     raise ModuleNotFoundError("使用项目内置Gradio获取最优体验! 请运行 `pip install -r requirements.txt` 指令安装内置Gradio及其他依赖, 详情信息见requirements.txt.")
 
     # 一些基础工具
-    from toolbox import format_io, find_free_port, on_file_uploaded, on_report_generated, get_conf, ArgsGeneralWrapper, DummyWith
+    from toolbox import (
+        ArgsGeneralWrapper,
+        DummyWith,
+        default_user_name,
+        find_free_port,
+        format_io,
+        get_conf,
+        on_file_uploaded,
+        on_report_generated,
+    )
 
     # MCP相关模块
 
@@ -392,8 +401,9 @@ def main():
                     history_value,
                     "图片描述不能为空",
                     "",
+                    gr.update(interactive=True),
                 )
-            owner = request.username or cookies_value.get("user_name") or "default_user"
+            owner = request.username or cookies_value.get("user_name") or default_user_name
             llm_kwargs = {"api_key": cookies_value.get("api_key", "")}
             plugin_kwargs = build_drawing_plugin_kwargs(
                 resolution,
@@ -424,6 +434,7 @@ def main():
                     history_value,
                     "后台图片任务已满，请稍后重试",
                     "",
+                    gr.update(interactive=True),
                 )
             chatbot_value = list(chatbot_value or [])
             chatbot_value.append([
@@ -436,17 +447,30 @@ def main():
                 history_value,
                 "图片任务已提交，正在后台生成",
                 job.job_id,
+                gr.update(interactive=False),
             )
 
         def receive_drawing_job(
             request: gr.Request, job_id, cookies_value, chatbot_value, history_value,
         ):
-            owner = request.username or cookies_value.get("user_name") or "default_user"
+            owner = request.username or cookies_value.get("user_name") or default_user_name
             job = image_job_manager.get(job_id, owner=owner)
             if job is None:
-                return cookies_value, chatbot_value, history_value, "图片任务不存在或已过期"
+                return (
+                    cookies_value,
+                    chatbot_value,
+                    history_value,
+                    "图片任务不存在或已过期",
+                    gr.update(interactive=True),
+                )
             if not job.done.is_set():
-                return cookies_value, chatbot_value, history_value, "图片仍在后台生成"
+                return (
+                    cookies_value,
+                    chatbot_value,
+                    history_value,
+                    "图片仍在后台生成",
+                    gr.update(interactive=False),
+                )
             if job.status == "completed":
                 reply = build_image_result_html(job.result)
                 status_message = "图片生成完成，可预览或下载原图"
@@ -460,15 +484,28 @@ def main():
                 job.prompt,
                 reply,
             )
-            return cookies_value, chatbot_value, history_value, status_message
+            image_job_manager.discard(job.job_id, owner=owner)
+            return (
+                cookies_value,
+                chatbot_value,
+                history_value,
+                status_message,
+                gr.update(interactive=True),
+            )
 
+        drawing_generate_btn.click(
+            None,
+            inputs=None,
+            outputs=None,
+            _js="""()=>set_drawing_generate_button_disabled(true)""",
+        )
         drawing_click_handle = drawing_generate_btn.click(
             submit_drawing_job,
             inputs=[
                 drawing_resolution, drawing_quality, drawing_format,
                 cookies, drawing_prompt, chatbot, history,
             ],
-            outputs=[*output_combo, drawing_job_id],
+            outputs=[*output_combo, drawing_job_id, drawing_generate_btn],
             queue=False,
         )
         drawing_click_handle.then(
@@ -480,7 +517,7 @@ def main():
         drawing_result_btn.click(
             receive_drawing_job,
             inputs=[drawing_job_id, cookies, chatbot, history],
-            outputs=output_combo,
+            outputs=[*output_combo, drawing_generate_btn],
             queue=False,
         )
 
