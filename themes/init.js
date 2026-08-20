@@ -143,6 +143,7 @@ async function GptAcademicJavaScriptInit(dark, prompt, live2d, layout, tts) {
     minor_ui_adjustment();
     ButtonWithDropdown_init();
     update_conversation_metadata();
+    resume_image_job_event_streams();
     window.addEventListener("gptac_restore_chat_from_local_storage", restore_chat_from_local_storage);
 
     // 加载欢迎页面

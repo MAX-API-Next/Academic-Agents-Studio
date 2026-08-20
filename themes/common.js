@@ -42,7 +42,7 @@ async function get_gradio_component(ELEM_ID) {
             window.dispatchEvent(myEvent);
         });
     }
-    result = await waitFor(ELEM_ID);
+    const result = await waitFor(ELEM_ID);
     return result;
 }
 
@@ -50,6 +50,181 @@ async function get_gradio_component(ELEM_ID) {
 async function get_data_from_gradio_component(ELEM_ID) {
     let comp = await get_gradio_component(ELEM_ID);
     return comp.props.value;
+}
+
+
+const IMAGE_JOB_STORAGE_KEY = "gptac_pending_image_jobs";
+const imageJobEventSources = {};
+const imageJobTerminalEvents = {};
+
+function get_saved_image_job_ids() {
+    try {
+        const value = JSON.parse(localStorage.getItem(IMAGE_JOB_STORAGE_KEY) || "[]");
+        return Array.isArray(value) ? value.filter(item => typeof item === "string") : [];
+    } catch (error) {
+        return [];
+    }
+}
+
+function save_image_job_ids(jobIds) {
+    try {
+        localStorage.setItem(IMAGE_JOB_STORAGE_KEY, JSON.stringify([...new Set(jobIds)]));
+    } catch (error) {
+        console.warn("Failed to save pending image jobs", error);
+    }
+}
+
+function remember_image_job(jobId) {
+    save_image_job_ids([...get_saved_image_job_ids(), jobId]);
+}
+
+function forget_image_job(jobId) {
+    save_image_job_ids(get_saved_image_job_ids().filter(item => item !== jobId));
+}
+
+function set_drawing_generate_button_disabled(disabled) {
+    const container = document.getElementById("drawing_generate_btn");
+    const button = container && (
+        container.tagName === "BUTTON" ? container : container.querySelector("button")
+    );
+    if (button) {
+        button.disabled = disabled;
+        button.setAttribute("aria-disabled", String(disabled));
+    }
+}
+
+function image_job_base_path() {
+    return window.location.pathname.endsWith("/")
+        ? window.location.pathname
+        : `${window.location.pathname}/`;
+}
+
+function complete_image_job_event(jobId) {
+    const source = imageJobEventSources[jobId];
+    if (source) {
+        source.close();
+        delete imageJobEventSources[jobId];
+    }
+    if (imageJobTerminalEvents[jobId]) {
+        return;
+    }
+    imageJobTerminalEvents[jobId] = true;
+    push_data_to_gradio_component(jobId, "drawing_job_id", "str");
+    click_drawing_result_when_ready(jobId);
+}
+
+async function cancel_image_job(jobId, button) {
+    if (!jobId) {
+        return;
+    }
+    const cancelButton = button || document.querySelector(
+        `.image-job-cancel[data-image-job-id="${jobId}"]`
+    );
+    if (cancelButton) {
+        cancelButton.disabled = true;
+        cancelButton.textContent = "停止中…";
+    }
+    try {
+        const response = await fetch(
+            `${window.location.origin}${image_job_base_path()}image-events/${encodeURIComponent(jobId)}/cancel`,
+            {method: "POST", credentials: "same-origin"},
+        );
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok) {
+            throw new Error(payload.detail || `HTTP ${response.status}`);
+        }
+        if (payload.status === "cancelled") {
+            if (cancelButton) {
+                cancelButton.textContent = "已停止";
+            }
+            complete_image_job_event(jobId);
+            return;
+        }
+        if (cancelButton) {
+            cancelButton.disabled = false;
+            cancelButton.textContent = "任务已结束";
+        }
+    } catch (error) {
+        console.warn("Unable to cancel image job", jobId, error);
+        if (cancelButton) {
+            cancelButton.disabled = false;
+            cancelButton.textContent = "停止失败，重试";
+        }
+    }
+}
+
+document.addEventListener("click", event => {
+    const button = event.composedPath
+        ? event.composedPath().find(element => element.matches && element.matches(".image-job-cancel"))
+        : event.target.closest && event.target.closest(".image-job-cancel");
+    if (!button) {
+        return;
+    }
+    event.preventDefault();
+    event.stopPropagation();
+    cancel_image_job(button.dataset.imageJobId, button);
+});
+
+function click_drawing_result_when_ready(jobId, deadline = Date.now() + 10000) {
+    get_data_from_gradio_component("drawing_job_id").then(currentJobId => {
+        const resultButton = document.getElementById("drawing_result_btn");
+        if (currentJobId === jobId && resultButton) {
+            forget_image_job(jobId);
+            resultButton.click();
+            return;
+        }
+        if (Date.now() >= deadline) {
+            console.warn("Image job result component did not update", jobId);
+            // Keep the recovery record: the server-side job may already be complete.
+            set_drawing_generate_button_disabled(false);
+            return;
+        }
+        window.requestAnimationFrame(() => click_drawing_result_when_ready(jobId, deadline));
+    }).catch(error => {
+        if (Date.now() >= deadline) {
+            console.warn("Unable to read image job result component", jobId, error);
+            // Keep the recovery record so a page reload can resume the event stream.
+            set_drawing_generate_button_disabled(false);
+            return;
+        }
+        window.requestAnimationFrame(() => click_drawing_result_when_ready(jobId, deadline));
+    });
+}
+
+function start_image_job_event_stream(jobId) {
+    if (!jobId || imageJobEventSources[jobId] || imageJobTerminalEvents[jobId]) {
+        return;
+    }
+    remember_image_job(jobId);
+    const eventUrl = `${window.location.origin}${image_job_base_path()}image-events/${encodeURIComponent(jobId)}`;
+    const source = new EventSource(eventUrl);
+    imageJobEventSources[jobId] = source;
+    let consecutiveErrors = 0;
+
+    source.onopen = () => {
+        consecutiveErrors = 0;
+    };
+    source.addEventListener("image_job", event => {
+        const payload = JSON.parse(event.data);
+        if (payload.job_id !== jobId) {
+            return;
+        }
+        complete_image_job_event(jobId);
+    });
+    source.onerror = error => {
+        consecutiveErrors += 1;
+        console.warn("Image job event stream reconnecting", jobId, error);
+        if (source.readyState === EventSource.CLOSED || consecutiveErrors >= 3) {
+            source.close();
+            delete imageJobEventSources[jobId];
+            forget_image_job(jobId);
+            set_drawing_generate_button_disabled(false);
+        }
+    };
+}
+
+function resume_image_job_event_streams() {
+    get_saved_image_job_ids().forEach(start_image_job_event_stream);
 }
 
 
@@ -561,6 +736,7 @@ function get_elements(consider_state_panel = false) {
     }
     const panel1 = document.querySelector('#input-panel').getBoundingClientRect();
     const panel2 = document.querySelector('#basic-panel').getBoundingClientRect()
+    const drawingPanel = document.querySelector('#drawing-panel').getBoundingClientRect();
     const panel3 = document.querySelector('#plugin-panel').getBoundingClientRect();
     // const panel4 = document.querySelector('#interact-panel').getBoundingClientRect();
     const panel_active = document.querySelector('#state-panel').getBoundingClientRect();
@@ -568,7 +744,7 @@ function get_elements(consider_state_panel = false) {
         document.state_panel_height = panel_active.height;
     }
     // 25 是chatbot的label高度, 16 是右侧的gap
-    var height_target = panel1.height + panel2.height + panel3.height + 0 + 0 - 25 + 16 * 2;
+    var height_target = panel1.height + panel2.height + drawingPanel.height + panel3.height - 25 + 16 * 3;
     // 禁止动态的state-panel高度影响
     height_target = height_target + (document.state_panel_height - panel_active.height)
     var height_target = parseInt(height_target);
@@ -589,7 +765,7 @@ function get_elements(consider_state_panel = false) {
         // 调整高度
         const chatbot_height_exceed = 15;
         const chatbot_height_exceed_m = 10;
-        b_panel = Math.max(panel1.bottom, panel2.bottom, panel3.bottom)
+        const b_panel = Math.max(panel1.bottom, panel2.bottom, drawingPanel.bottom, panel3.bottom);
         if (b_panel >= window.innerHeight - chatbot_height_exceed) {
             height_target = window.innerHeight - chatbot.getBoundingClientRect().top - chatbot_height_exceed_m;
         }

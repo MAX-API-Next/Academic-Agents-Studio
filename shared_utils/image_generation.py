@@ -28,6 +28,10 @@ class ImageGenerationError(RuntimeError):
     pass
 
 
+class ImageGenerationCancelled(ImageGenerationError):
+    """Raised when the caller stops an in-flight image request."""
+
+
 @dataclass(frozen=True)
 class ImageGenerationResult:
     file_path: str
@@ -52,6 +56,7 @@ def generate_image(
     timeout=180,
     proxies=None,
     session=None,
+    cancel_event=None,
 ):
     """Generate one image through an OpenAI-compatible Images API."""
     prompt = (prompt or "").strip()
@@ -65,6 +70,7 @@ def generate_image(
         raise ImageGenerationError(f"不支持的图片质量：{quality}")
     if output_format not in SUPPORTED_IMAGE_FORMATS:
         raise ImageGenerationError(f"不支持的图片格式：{output_format}")
+    _raise_if_cancelled(cancel_event)
 
     client = session or requests
     payload = {
@@ -90,7 +96,11 @@ def generate_image(
             timeout=timeout,
         )
     except requests.RequestException as exc:
+        if cancel_event is not None and cancel_event.is_set():
+            raise ImageGenerationCancelled("图片生成已停止。") from exc
         raise ImageGenerationError(f"图片接口连接失败：{exc}") from exc
+
+    _raise_if_cancelled(cancel_event)
 
     request_id = response.headers.get("x-request-id")
     elapsed = time.monotonic() - started_at
@@ -123,16 +133,26 @@ def generate_image(
             source_url,
             proxies=proxies,
             timeout=timeout,
+            cancel_event=cancel_event,
         )
     else:
         raise ImageGenerationError("图片接口既未返回 b64_json，也未返回 url。")
 
+    _raise_if_cancelled(cancel_event)
     os.makedirs(output_dir, exist_ok=True)
     timestamp = time.strftime("%Y-%m-%d-%H-%M-%S", time.localtime())
     filename = f"Image-{timestamp}-{uuid.uuid4().hex[:8]}.{output_format}"
     file_path = os.path.abspath(os.path.join(output_dir, filename))
-    with open(file_path, "wb") as image_file:
-        image_file.write(image_bytes)
+    try:
+        with open(file_path, "wb") as image_file:
+            image_file.write(image_bytes)
+        _raise_if_cancelled(cancel_event)
+    except ImageGenerationCancelled:
+        try:
+            os.remove(file_path)
+        except FileNotFoundError:
+            pass
+        raise
 
     return ImageGenerationResult(
         file_path=file_path,
@@ -145,11 +165,20 @@ def generate_image(
     )
 
 
-def _download_image(client, url, *, proxies, timeout):
+def _raise_if_cancelled(cancel_event):
+    if cancel_event is not None and cancel_event.is_set():
+        raise ImageGenerationCancelled("图片生成已停止。")
+
+
+def _download_image(client, url, *, proxies, timeout, cancel_event=None):
+    _raise_if_cancelled(cancel_event)
     try:
         response = client.get(url, proxies=proxies, timeout=timeout)
     except requests.RequestException as exc:
+        if cancel_event is not None and cancel_event.is_set():
+            raise ImageGenerationCancelled("图片生成已停止。") from exc
         raise ImageGenerationError(f"图片下载失败：{exc}") from exc
+    _raise_if_cancelled(cancel_event)
     if not response.ok:
         raise ImageGenerationError(f"图片下载失败，HTTP {response.status_code}。")
     return response.content

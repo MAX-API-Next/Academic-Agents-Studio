@@ -7,6 +7,7 @@ help_menu_description = \
 如遇到Bug请前往[Bug反馈](https://github.com/MAX-API-Next/Academic-Agents-Studio/issues).
 </br></br>普通对话使用说明: 1. 输入问题; 2. 点击提交
 </br></br>基础功能区使用说明: 1. 输入文本; 2. 点击任意基础功能区按钮
+</br></br>绘图功能区使用说明: 1. 输入图片描述; 2. 选择分辨率、质量和格式; 3. 点击生成图片
 </br></br>函数插件区使用说明: 1. 输入路径/问题, 或者上传文件; 2. 点击任意函数插件区按钮
 </br></br>虚空终端使用说明: 点击虚空终端, 然后根据提示输入指令, 再次点击虚空终端
 </br></br>如何保存对话: 点击保存当前的对话按钮
@@ -32,13 +33,70 @@ def encode_plugin_info(k, plugin)->str:
         plugin_["Label"] = f"插件[{k}]不需要高级参数。"
     return to_cookie_str(plugin_)
 
+DRAWING_RESOLUTION_OPTIONS = (
+    "auto",
+    "1024x1024",
+    "1536x1024",
+    "1024x1536",
+    "2048x2048",
+    "2048x1152",
+    "3840x2160",
+    "2160x3840",
+)
+DRAWING_QUALITY_OPTIONS = ("low", "medium", "high", "auto")
+DRAWING_FORMAT_OPTIONS = ("png", "jpeg", "webp")
+
+
+def build_drawing_plugin_kwargs(resolution, quality, output_format):
+    return {
+        "resolution": resolution,
+        "quality": quality,
+        "output_format": output_format,
+    }
+
+
+def build_drawing_pending_message(job_id, model):
+    import html
+
+    safe_job_id = html.escape(str(job_id), quote=True)
+    safe_model = html.escape(str(model), quote=True)
+    return (
+        f'<div class="image-job-pending" data-image-job-id="{safe_job_id}">'
+        '<span class="image-job-spinner" aria-hidden="true"></span>'
+        f'<span class="image-job-pending-text">正在通过 AIOAGI 的 {safe_model} 后台生成图片，请稍候……</span>'
+        f'<button type="button" class="image-job-cancel" '
+        f'data-image-job-id="{safe_job_id}" aria-label="停止图片生成">停止</button>'
+        "</div>"
+    )
+
+
+def replace_drawing_job_message(chatbot, job_id, prompt, reply):
+    messages = list(chatbot or [])
+    marker = f'data-image-job-id="{job_id}"'
+    for index in range(len(messages) - 1, -1, -1):
+        pair = messages[index]
+        if len(pair) > 1 and marker in str(pair[1]):
+            messages[index] = [prompt, reply]
+            return messages
+    messages.append([prompt, reply])
+    return messages
+
 def main():
     import gradio as gr
     # if gr.__version__ not in ['1.0.0']:
     #     raise ModuleNotFoundError("使用项目内置Gradio获取最优体验! 请运行 `pip install -r requirements.txt` 指令安装内置Gradio及其他依赖, 详情信息见requirements.txt.")
 
     # 一些基础工具
-    from toolbox import format_io, find_free_port, on_file_uploaded, on_report_generated, get_conf, ArgsGeneralWrapper, DummyWith
+    from toolbox import (
+        ArgsGeneralWrapper,
+        DummyWith,
+        default_user_name,
+        find_free_port,
+        format_io,
+        get_conf,
+        on_file_uploaded,
+        on_report_generated,
+    )
 
     # MCP相关模块
 
@@ -180,6 +238,42 @@ def main():
                             functional[k]["Button"] = gr.Button(k, variant=variant, info_str=f'基础功能区: {k}')
                             functional[k]["Button"].style(size="sm")
                             predefined_btns.update({k: functional[k]["Button"]})
+                with gr.Accordion("绘图功能区", open=False, elem_id="drawing-panel") as area_drawing_fn:
+                    drawing_prompt = gr.Textbox(
+                        label="图片描述",
+                        placeholder="描述主体、布局、风格和用途，例如：为 Transformer 论文绘制一张简洁的横版图形摘要",
+                        lines=3,
+                        max_lines=8,
+                        elem_id="drawing_prompt",
+                    )
+                    with gr.Row():
+                        drawing_resolution = gr.Dropdown(
+                            DRAWING_RESOLUTION_OPTIONS, value="auto", interactive=True,
+                            label="分辨率", elem_id="drawing_resolution",
+                        ).style(container=False)
+                        drawing_quality = gr.Dropdown(
+                            DRAWING_QUALITY_OPTIONS, value="medium", interactive=True,
+                            label="质量", elem_id="drawing_quality",
+                        ).style(container=False)
+                        drawing_format = gr.Dropdown(
+                            DRAWING_FORMAT_OPTIONS, value="png", interactive=True,
+                            label="格式", elem_id="drawing_format",
+                        ).style(container=False)
+                    drawing_generate_btn = gr.Button(
+                        "🎨 生成图片（GPT Image 2）",
+                        variant="primary",
+                        elem_id="drawing_generate_btn",
+                        info_str="绘图功能区: 使用 GPT Image 2 生成图片",
+                    ).style(size="sm")
+                    drawing_job_id = gr.Textbox(
+                        visible=False,
+                        elem_id="drawing_job_id",
+                    )
+                    drawing_result_btn = gr.Button(
+                        "接收图片生成结果",
+                        visible=False,
+                        elem_id="drawing_result_btn",
+                    )
                 with gr.Accordion("函数插件区", open=False, elem_id="plugin-panel") as area_crazy_fn:
                     with gr.Row():
                         gr.Markdown("<small>插件可读取“输入区”文本/路径作为参数（上传文件自动修正路径）</small>")
@@ -243,9 +337,10 @@ def main():
             ret.update({area_input_primary: gr.update(visible=("浮动输入区" not in a))})
             ret.update({area_input_secondary: gr.update(visible=("浮动输入区" in a))})
             ret.update({plugin_advanced_arg: gr.update(visible=("插件参数区" in a))})
+            ret.update({area_drawing_fn: gr.update(visible=("绘图功能区" in a))})
             if "浮动输入区" in a: ret.update({txt: gr.update(value="")})
             return ret
-        checkboxes.select(fn_area_visibility, [checkboxes], [area_basic_fn, area_crazy_fn, area_input_primary, area_input_secondary, txt, txt2, plugin_advanced_arg] )
+        checkboxes.select(fn_area_visibility, [checkboxes], [area_basic_fn, area_drawing_fn, area_crazy_fn, area_input_primary, area_input_secondary, txt, txt2, plugin_advanced_arg] )
         checkboxes.select(None, [checkboxes], None, _js=js_code_show_or_hide)
 
         # 功能区显示开关与功能区的互动
@@ -293,6 +388,160 @@ def main():
         for btn in customize_btns.values():
             click_handle = btn.click(fn=ArgsGeneralWrapper(predict), inputs=[*input_combo, gr.State(True), gr.State(btn.value)], outputs=output_combo)
             cancel_handles.append(click_handle)
+
+        # 绘图功能区：提交后台任务后立即返回，由 SSE 在完成时主动通知浏览器。
+        import html
+        import threading
+        from crazy_functions.Image_Generate import (
+            build_image_result_html,
+            generate_gpt_image_result,
+        )
+        from shared_utils.image_jobs import image_job_manager
+
+        image_model = get_conf("IMAGE_MODEL")
+
+        def submit_drawing_job(
+            request: gr.Request, resolution, quality, output_format,
+            cookies_value, prompt, chatbot_value, history_value,
+        ):
+            prompt = (prompt or "").strip()
+            if not prompt:
+                return (
+                    cookies_value,
+                    chatbot_value,
+                    history_value,
+                    "图片描述不能为空",
+                    "",
+                    gr.update(interactive=True),
+                )
+            owner = request.username or cookies_value.get("user_name") or default_user_name
+            llm_kwargs = {"api_key": cookies_value.get("api_key", "")}
+            plugin_kwargs = build_drawing_plugin_kwargs(
+                resolution,
+                quality,
+                output_format,
+            )
+            cancel_event = threading.Event()
+
+            def run_image_generation():
+                return generate_gpt_image_result(
+                    prompt,
+                    llm_kwargs,
+                    plugin_kwargs,
+                    owner,
+                    cancel_event=cancel_event,
+                )
+
+            try:
+                job = image_job_manager.submit(
+                    owner=owner,
+                    prompt=prompt,
+                    work=run_image_generation,
+                    cancel_event=cancel_event,
+                )
+            except RuntimeError as exc:
+                safe_error = html.escape(str(exc))
+                chatbot_value = list(chatbot_value or [])
+                chatbot_value.append([
+                    prompt,
+                    f"[Local Message] 图片任务提交失败：{safe_error}",
+                ])
+                return (
+                    cookies_value,
+                    chatbot_value,
+                    history_value,
+                    "后台图片任务已满，请稍后重试",
+                    "",
+                    gr.update(interactive=True),
+                )
+            chatbot_value = list(chatbot_value or [])
+            chatbot_value.append([
+                prompt,
+                build_drawing_pending_message(job.job_id, image_model),
+            ])
+            return (
+                cookies_value,
+                chatbot_value,
+                history_value,
+                "图片任务已提交，正在后台生成",
+                job.job_id,
+                gr.update(interactive=False),
+            )
+
+        def receive_drawing_job(
+            request: gr.Request, job_id, cookies_value, chatbot_value, history_value,
+        ):
+            owner = request.username or cookies_value.get("user_name") or default_user_name
+            job = image_job_manager.get(job_id, owner=owner)
+            if job is None:
+                return (
+                    cookies_value,
+                    chatbot_value,
+                    history_value,
+                    "图片任务不存在或已过期",
+                    gr.update(interactive=True),
+                )
+            if not job.done.is_set():
+                return (
+                    cookies_value,
+                    chatbot_value,
+                    history_value,
+                    "图片仍在后台生成",
+                    gr.update(interactive=False),
+                )
+            if job.status == "completed":
+                reply = build_image_result_html(job.result)
+                status_message = "图片生成完成，可预览或下载原图"
+            elif job.status == "cancelled":
+                reply = "已停止该任务"
+                status_message = "已停止该任务"
+            else:
+                safe_error = html.escape(job.error or "未知错误")
+                reply = f"✖ 图片生成失败：{safe_error}"
+                status_message = "图片生成失败"
+            chatbot_value = replace_drawing_job_message(
+                chatbot_value,
+                job.job_id,
+                job.prompt,
+                reply,
+            )
+            image_job_manager.discard(job.job_id, owner=owner)
+            return (
+                cookies_value,
+                chatbot_value,
+                history_value,
+                status_message,
+                gr.update(interactive=True),
+            )
+
+        drawing_generate_btn.click(
+            None,
+            inputs=None,
+            outputs=None,
+            _js="""()=>set_drawing_generate_button_disabled(true)""",
+        )
+        drawing_click_handle = drawing_generate_btn.click(
+            submit_drawing_job,
+            inputs=[
+                drawing_resolution, drawing_quality, drawing_format,
+                cookies, drawing_prompt, chatbot, history,
+            ],
+            outputs=[*output_combo, drawing_job_id, drawing_generate_btn],
+            queue=False,
+        )
+        drawing_click_handle.then(
+            None,
+            [drawing_job_id],
+            None,
+            _js="(job_id)=>start_image_job_event_stream(job_id)",
+        )
+        drawing_result_btn.click(
+            receive_drawing_job,
+            inputs=[drawing_job_id, cookies, chatbot, history],
+            outputs=[*output_combo, drawing_generate_btn],
+            queue=False,
+        )
+
         # 文件上传区，接收文件后与chatbot的互动
         file_upload.upload(on_file_uploaded, [file_upload, chatbot, txt, txt2, checkboxes, cookies], [chatbot, txt, txt2, cookies]).then(None, None, None,   _js=r"()=>{toast_push('上传完毕 ...'); cancel_loading_status();}")
         file_upload_2.upload(on_file_uploaded, [file_upload_2, chatbot, txt, txt2, checkboxes, cookies], [chatbot, txt, txt2, cookies]).then(None, None, None, _js=r"()=>{toast_push('上传完毕 ...'); cancel_loading_status();}")

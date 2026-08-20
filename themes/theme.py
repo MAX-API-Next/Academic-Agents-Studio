@@ -127,6 +127,16 @@ setTimeout(() => {
         ele.style.display = "none";
     }
 
+    ////////////////////// 绘图功能区 ///////////////////////////
+    searchString = "绘图功能区";
+    if (display_panel_arr.includes(searchString)) {
+        ele = document.getElementById("drawing-panel");
+        ele.style.display = "block";
+    } else {
+        ele = document.getElementById("drawing-panel");
+        ele.style.display = "none";
+    }
+
     ////////////////////// 函数插件区 ///////////////////////////
     searchString = "函数插件区";
     if (display_panel_arr.includes(searchString)) {

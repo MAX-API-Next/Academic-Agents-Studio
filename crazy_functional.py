@@ -45,8 +45,7 @@ def get_crazy_functions():
     from crazy_functions.Latex_Function_Wrap import PDF_Localize
     from crazy_functions.Internet_GPT import 连接网络回答问题
     from crazy_functions.Internet_GPT_Wrap import NetworkGPT_Wrap
-    from crazy_functions.Image_Generate import 图片生成_GPT_IMAGE, 图片修改_DALLE2
-    from crazy_functions.Image_Generate_Wrap import ImageGen_Wrap
+    from crazy_functions.Image_Generate import 图片修改_DALLE2
     from crazy_functions.SourceCode_Comment import 注释Python项目
     from crazy_functions.SourceCode_Comment_Wrap import SourceCodeComment_Wrap
     from crazy_functions.VideoResource_GPT import 多媒体任务
@@ -392,19 +391,6 @@ def get_crazy_functions():
             "Class": Document_Conversation_Wrap,
         },
     }
-
-    function_plugins.update(
-        {
-            "🎨学术插图 / 图片生成（GPT Image 2）": {
-                "Group": "对话",
-                "Color": "stop",
-                "AsButton": False,
-                "Info": "通过 AIOAGI GPT Image 2 生成学术插图、图形摘要或普通图片",
-                "Function": HotReload(图片生成_GPT_IMAGE),   # 当注册Class后，Function旧接口仅会在“Void_Terminal”中起作用
-                "Class": ImageGen_Wrap  # 新一代插件需要注册Class
-            },
-        }
-    )
 
     function_plugins.update(
         {

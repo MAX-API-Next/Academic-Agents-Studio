@@ -44,6 +44,8 @@ queue cocurrent effectiveness
     -- websocket(yes)
 """
 
+import asyncio
+import json
 import os, requests, threading, time
 import uvicorn
 
@@ -106,6 +108,50 @@ class Server(uvicorn.Server):
         self.thread.join()
 
 
+async def stream_image_job_events(
+    job_manager,
+    job_id,
+    owner,
+    request,
+    *,
+    heartbeat_interval=15.0,
+    poll_interval=0.25,
+):
+    """Stream one image-job completion event without blocking an asyncio worker.
+
+    Image generation itself runs in ``ImageJobManager``'s worker pool. The SSE
+    connection only performs short, lock-protected state reads and yields to the
+    event loop between checks, so a slow image job cannot occupy the default
+    asyncio executor. The disconnect check also lets abandoned browser tabs stop
+    polling promptly.
+    """
+    loop = asyncio.get_running_loop()
+    next_heartbeat = loop.time() + heartbeat_interval
+
+    while True:
+        if await request.is_disconnected():
+            return
+
+        job = job_manager.get(job_id, owner=owner)
+        if job is None:
+            return
+        if job.done.is_set():
+            payload = json.dumps(
+                {"job_id": job.job_id, "status": job.status},
+                ensure_ascii=False,
+            )
+            yield f"event: image_job\ndata: {payload}\n\n"
+            return
+
+        now = loop.time()
+        if now >= next_heartbeat:
+            yield ": keep-alive\n\n"
+            next_heartbeat = now + heartbeat_interval
+
+        sleep_for = min(poll_interval, max(next_heartbeat - now, 0.01))
+        await asyncio.sleep(sleep_for)
+
+
 def start_app(app_block, CONCURRENT_COUNT, AUTHENTICATION, PORT, SSL_KEYFILE, SSL_CERTFILE):
     import uvicorn
     import fastapi
@@ -138,6 +184,54 @@ def start_app(app_block, CONCURRENT_COUNT, AUTHENTICATION, PORT, SSL_KEYFILE, SS
     app_block.is_sagemaker = False
 
     gradio_app = App.create_app(app_block)
+
+    # 图片生成在后台线程运行；SSE 连接负责心跳并在任务完成时通知浏览器。
+    from fastapi import HTTPException, Request
+    from starlette.responses import StreamingResponse
+    from shared_utils.image_jobs import image_job_manager
+
+    @gradio_app.get("/image-events/{job_id}")
+    async def image_events(job_id: str, request: Request):
+        owner = None
+        if len(AUTHENTICATION) > 0:
+            token = request.cookies.get("access-token") or request.cookies.get(
+                "access-token-unsecure"
+            )
+            owner = gradio_app.tokens.get(token)
+            if owner is None:
+                raise HTTPException(status_code=404, detail="Image job not found")
+        if image_job_manager.get(job_id, owner=owner) is None:
+            raise HTTPException(status_code=404, detail="Image job not found")
+
+        return StreamingResponse(
+            stream_image_job_events(image_job_manager, job_id, owner, request),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "X-Accel-Buffering": "no",
+            },
+        )
+
+    @gradio_app.post("/image-events/{job_id}/cancel")
+    async def cancel_image_event(job_id: str, request: Request):
+        owner = None
+        if len(AUTHENTICATION) > 0:
+            token = request.cookies.get("access-token") or request.cookies.get(
+                "access-token-unsecure"
+            )
+            owner = gradio_app.tokens.get(token)
+            if owner is None:
+                raise HTTPException(status_code=404, detail="Image job not found")
+        if image_job_manager.get(job_id, owner=owner) is None:
+            raise HTTPException(status_code=404, detail="Image job not found")
+
+        image_job_manager.cancel(job_id, owner=owner)
+        job = image_job_manager.get(job_id, owner=owner)
+        return {
+            "job_id": job_id,
+            "status": job.status if job is not None else "cancelled",
+        }
+
     for route in list(gradio_app.router.routes):
         if route.path == "/proxy={url_path:path}":
             gradio_app.router.routes.remove(route)
