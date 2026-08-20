@@ -103,6 +103,7 @@ function click_drawing_result_when_ready(jobId, attempt = 0) {
         }
         if (attempt >= maxAttempts) {
             console.warn("Image job result component did not update", jobId);
+            forget_image_job(jobId);
             set_drawing_generate_button_disabled(false);
             return;
         }
@@ -110,6 +111,7 @@ function click_drawing_result_when_ready(jobId, attempt = 0) {
     }).catch(error => {
         if (attempt >= maxAttempts) {
             console.warn("Unable to read image job result component", jobId, error);
+            forget_image_job(jobId);
             set_drawing_generate_button_disabled(false);
             return;
         }
