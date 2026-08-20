@@ -493,8 +493,8 @@ def main():
                 reply = build_image_result_html(job.result)
                 status_message = "图片生成完成，可预览或下载原图"
             elif job.status == "cancelled":
-                reply = "图片任务已停止，后续返回的结果将被忽略。"
-                status_message = "已停止接收图片结果"
+                reply = "已停止该任务"
+                status_message = "已停止该任务"
             else:
                 safe_error = html.escape(job.error or "未知错误")
                 reply = f"[Local Message] 图片生成失败：{safe_error}"
