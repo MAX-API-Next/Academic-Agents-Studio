@@ -2,9 +2,7 @@
 name: build-with-latex-arm
 
 on:
-  push:
-    branches:
-      - "master"
+  workflow_dispatch:
 
 env:
   REGISTRY: ghcr.io
