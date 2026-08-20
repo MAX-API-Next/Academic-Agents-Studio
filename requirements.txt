@@ -1,4 +1,5 @@
 ./docs/gradio-3.32.15-py3-none-any.whl
+setuptools>=77.0.3,<81
 qwen-agent==0.0.29
 fastapi==0.110
 gradio-client==0.8
