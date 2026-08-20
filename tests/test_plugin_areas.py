@@ -163,6 +163,40 @@ class DrawingAreaTests(unittest.TestCase):
 
         release_work.set()
 
+    def test_image_job_manager_removes_result_created_during_cancel_race(self):
+        result_ready = threading.Event()
+        release_work = threading.Event()
+        cleanup_finished = threading.Event()
+
+        with tempfile.TemporaryDirectory() as temporary_dir:
+            result_path = os.path.join(temporary_dir, "cancelled.png")
+
+            def finish_after_cancel():
+                with open(result_path, "wb") as image_file:
+                    image_file.write(b"cancelled-image")
+                result_ready.set()
+                release_work.wait(1.0)
+                return SimpleNamespace(file_path=result_path)
+
+            real_remove = os.remove
+
+            def tracked_remove(file_path):
+                try:
+                    real_remove(file_path)
+                finally:
+                    cleanup_finished.set()
+
+            with patch("shared_utils.image_jobs.os.remove", side_effect=tracked_remove):
+                manager = ImageJobManager(max_workers=1)
+                job = manager.submit(owner="tester", prompt="draw", work=finish_after_cancel)
+                self.assertTrue(result_ready.wait(1.0))
+                self.assertTrue(os.path.isfile(result_path))
+
+                self.assertTrue(manager.cancel(job.job_id, owner="tester"))
+                release_work.set()
+                self.assertTrue(cleanup_finished.wait(1.0))
+                self.assertFalse(os.path.exists(result_path))
+
     def test_image_job_manager_wait_can_time_out_while_job_is_pending(self):
         work_started = threading.Event()
         release_work = threading.Event()

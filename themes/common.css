@@ -1025,7 +1025,7 @@
 .image-job-spinner {
     width: 0.9em;
     height: 0.9em;
-    border: 2px solid currentColor;
+    border: 2px solid currentcolor;
     border-right-color: transparent;
     border-radius: 50%;
     display: inline-block;
@@ -1038,7 +1038,7 @@
 }
 
 .image-job-cancel {
-    border: 1px solid currentColor;
+    border: 1px solid currentcolor;
     border-radius: 0.35rem;
     background: transparent;
     color: inherit;

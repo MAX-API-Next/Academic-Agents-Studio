@@ -1,3 +1,4 @@
+import os
 import threading
 import time
 import uuid
@@ -136,12 +137,30 @@ class ImageJobManager:
             logger.exception("Background image job failed: job_id={}", job_id)
             return
         with self._lock:
-            if job.status == "cancelled":
-                return
-            job.status = "completed"
-            job.result = result
-            job.completed_at = time.time()
-            job.done.set()
+            cancelled = job.status == "cancelled"
+            if not cancelled:
+                job.status = "completed"
+                job.result = result
+                job.completed_at = time.time()
+                job.done.set()
+        if cancelled:
+            self._cleanup_cancelled_result(result, job_id)
+
+    @staticmethod
+    def _cleanup_cancelled_result(result: Any, job_id: str):
+        file_path = getattr(result, "file_path", None)
+        if not file_path:
+            return
+        try:
+            os.remove(file_path)
+        except FileNotFoundError:
+            return
+        except OSError:
+            logger.exception(
+                "Unable to remove cancelled image job result: job_id={} file_path={}",
+                job_id,
+                file_path,
+            )
 
     def _prune_locked(self):
         cutoff = time.time() - self._retention_seconds
