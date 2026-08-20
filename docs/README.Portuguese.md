@@ -9,6 +9,16 @@
 
 # <div align=center><img src="logo.png" width="40"> GPT Acadêmico</div>
 
+## 🎨 Geração de ilustrações científicas (GPT Image 2)
+
+O painel **Desenho** permite criar resumos gráficos, ilustrações para artigos, fluxos de pesquisa, figuras conceituais e materiais para pôsteres ou apresentações por meio de uma Images API compatível com OpenAI.
+
+- Insira uma descrição detalhada e escolha a resolução, a qualidade e o formato de saída.
+- As resoluções suportadas vão de `1024x1024` a `3840x2160`; os formatos disponíveis são `png`, `jpeg` e `webp`.
+- A geração é executada como uma tarefa em segundo plano com indicador de carregamento e pode ser interrompida pelo botão ao lado da mensagem de status.
+- As imagens concluídas podem ser visualizadas e baixadas no formato original.
+- Configure `IMAGE_API_URL`, `IMAGE_MODEL` e `IMAGE_TIMEOUT_SECONDS` em `config.py`. O token da API precisa ter acesso ao modelo de imagem configurado.
+
 **Se você gosta deste projeto, por favor, dê uma estrela nele. Se você inventou atalhos de teclado ou plugins úteis, fique à vontade para criar pull requests!**
 Para traduzir este projeto para qualquer idioma utilizando o GPT, leia e execute [`multi_language.py`](multi_language.py) (experimental).
 

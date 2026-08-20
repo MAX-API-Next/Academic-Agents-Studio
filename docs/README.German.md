@@ -10,6 +10,16 @@
 
 # <div align=center><img src="logo.png" width="40"> GPT Academic (GPT Akademisch)</div>
 
+## 🎨 Wissenschaftliche Abbildungen erstellen (GPT Image 2)
+
+Im Bereich **Zeichnen** lassen sich grafische Abstracts, Abbildungen für Fachartikel, Forschungsabläufe, Konzeptgrafiken sowie Materialien für Poster und Präsentationen über eine OpenAI-kompatible Images API erzeugen.
+
+- Geben Sie eine ausführliche Beschreibung ein und wählen Sie Auflösung, Qualität und Ausgabeformat.
+- Unterstützte Auflösungen reichen von `1024x1024` bis `3840x2160`; verfügbar sind `png`, `jpeg` und `webp`.
+- Die Generierung läuft als Hintergrundaufgabe mit Ladeanzeige und kann über die Schaltfläche neben der Statusmeldung gestoppt werden.
+- Fertige Bilder können direkt angezeigt und im Originalformat heruntergeladen werden.
+- Konfigurieren Sie `IMAGE_API_URL`, `IMAGE_MODEL` und `IMAGE_TIMEOUT_SECONDS` in `config.py`. Der API-Token muss für das konfigurierte Bildmodell freigeschaltet sein.
+
 **Wenn Ihnen dieses Projekt gefällt, geben Sie ihm bitte einen Star. Wenn Sie praktische Tastenkombinationen oder Plugins entwickelt haben, sind Pull-Anfragen willkommen!**
 
 Wenn Ihnen dieses Projekt gefällt, geben Sie ihm bitte einen Star.

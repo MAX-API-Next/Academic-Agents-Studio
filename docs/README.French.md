@@ -10,6 +10,16 @@
 
 # <div align=center><img src="logo.png" width="40"> Optimisation académique GPT (GPT Academic)</div>
 
+## 🎨 Génération d’illustrations scientifiques (GPT Image 2)
+
+Le panneau **Dessin** permet de produire des résumés graphiques, des illustrations d’articles, des schémas de processus de recherche, des figures conceptuelles ainsi que des visuels pour posters et présentations via une API Images compatible OpenAI.
+
+- Saisissez une description détaillée, puis choisissez la résolution, la qualité et le format de sortie.
+- Les résolutions prises en charge vont de `1024x1024` à `3840x2160` ; les formats disponibles sont `png`, `jpeg` et `webp`.
+- La génération s’exécute en arrière-plan avec un indicateur de chargement et peut être arrêtée avec le bouton situé à côté du message d’état.
+- Les images terminées peuvent être prévisualisées et téléchargées dans leur format d’origine.
+- Configurez `IMAGE_API_URL`, `IMAGE_MODEL` et `IMAGE_TIMEOUT_SECONDS` dans `config.py`. Le jeton API doit être autorisé à utiliser le modèle d’image configuré.
+
 **Si vous aimez ce projet, merci de lui donner une étoile ; si vous avez inventé des raccourcis ou des plugins utiles, n'hésitez pas à envoyer des demandes d'extraction !**
 
 Si vous aimez ce projet, veuillez lui donner une étoile.

@@ -10,6 +10,16 @@
 
 # <div align=center><img src="logo.png" width="40"> GPT Academic Optimization</div>
 
+## 🎨 Scientific Illustration Generation (GPT Image 2)
+
+The **Drawing** panel can generate graphical abstracts, paper illustrations, research workflow diagrams, concept figures, posters, and presentation assets through an OpenAI-compatible Images API.
+
+- Enter a detailed prompt, then choose the resolution, quality, and output format.
+- Supported resolutions range from `1024x1024` to `3840x2160`; output formats are `png`, `jpeg`, and `webp`.
+- Generation runs as a background job with a loading indicator. The task can be stopped from the button beside the status message.
+- Completed images can be previewed and downloaded in their original format.
+- Configure `IMAGE_API_URL`, `IMAGE_MODEL`, and `IMAGE_TIMEOUT_SECONDS` in `config.py`. The API token must have access to the configured image model.
+
 **If you like this project, please give it a Star.**
 To translate this project to arbitrary language with GPT, read and run [`multi_language.py`](multi_language.py) (experimental).
 
