@@ -173,6 +173,9 @@ class DrawingAreaTests(unittest.TestCase):
     def test_image_job_event_stream_emits_completion_without_blocking_executor(self):
         manager = ImageJobManager(max_workers=1)
         job = manager.submit(owner="tester", prompt="draw", work=lambda: "image")
+        completed = manager.wait(job.job_id, owner="tester", timeout=1.0)
+        self.assertIsNotNone(completed)
+        self.assertEqual(completed.status, "completed")
 
         class ConnectedRequest:
             async def is_disconnected(self):
@@ -186,7 +189,6 @@ class DrawingAreaTests(unittest.TestCase):
                     job.job_id,
                     "tester",
                     ConnectedRequest(),
-                    heartbeat_interval=0.01,
                     poll_interval=0.001,
                 )
             ]

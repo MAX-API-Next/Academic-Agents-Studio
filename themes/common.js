@@ -92,8 +92,7 @@ function set_drawing_generate_button_disabled(disabled) {
     }
 }
 
-function click_drawing_result_when_ready(jobId, attempt = 0) {
-    const maxAttempts = 120;
+function click_drawing_result_when_ready(jobId, deadline = Date.now() + 10000) {
     get_data_from_gradio_component("drawing_job_id").then(currentJobId => {
         const resultButton = document.getElementById("drawing_result_btn");
         if (currentJobId === jobId && resultButton) {
@@ -101,21 +100,21 @@ function click_drawing_result_when_ready(jobId, attempt = 0) {
             resultButton.click();
             return;
         }
-        if (attempt >= maxAttempts) {
+        if (Date.now() >= deadline) {
             console.warn("Image job result component did not update", jobId);
             forget_image_job(jobId);
             set_drawing_generate_button_disabled(false);
             return;
         }
-        window.requestAnimationFrame(() => click_drawing_result_when_ready(jobId, attempt + 1));
+        window.requestAnimationFrame(() => click_drawing_result_when_ready(jobId, deadline));
     }).catch(error => {
-        if (attempt >= maxAttempts) {
+        if (Date.now() >= deadline) {
             console.warn("Unable to read image job result component", jobId, error);
             forget_image_job(jobId);
             set_drawing_generate_button_disabled(false);
             return;
         }
-        window.requestAnimationFrame(() => click_drawing_result_when_ready(jobId, attempt + 1));
+        window.requestAnimationFrame(() => click_drawing_result_when_ready(jobId, deadline));
     });
 }
 
