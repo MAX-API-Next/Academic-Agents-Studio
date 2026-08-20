@@ -151,6 +151,7 @@ function start_image_job_event_stream(jobId) {
             source.close();
             delete imageJobEventSources[jobId];
             forget_image_job(jobId);
+            set_drawing_generate_button_disabled(false);
         }
     };
 }
