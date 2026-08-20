@@ -10,6 +10,16 @@
 
 # <div align=center><img src="logo.png" width="40"> GPT Ottimizzazione Accademica (GPT Academic)</div>
 
+## 🎨 Generazione di illustrazioni scientifiche (GPT Image 2)
+
+Il pannello **Disegno** consente di creare abstract grafici, illustrazioni per articoli, diagrammi dei flussi di ricerca, figure concettuali e materiali per poster o presentazioni tramite un’API Images compatibile con OpenAI.
+
+- Inserisci una descrizione dettagliata, quindi scegli risoluzione, qualità e formato di uscita.
+- Le risoluzioni supportate vanno da `1024x1024` a `3840x2160`; i formati disponibili sono `png`, `jpeg` e `webp`.
+- La generazione viene eseguita in background con un indicatore di caricamento e può essere interrotta dal pulsante accanto al messaggio di stato.
+- Le immagini completate possono essere visualizzate in anteprima e scaricate nel formato originale.
+- Configura `IMAGE_API_URL`, `IMAGE_MODEL` e `IMAGE_TIMEOUT_SECONDS` in `config.py`. Il token API deve avere accesso al modello di immagini configurato.
+
 **Se ti piace questo progetto, per favore dagli una stella; se hai idee o plugin utili, fai una pull request!**
 
 Se ti piace questo progetto, dagli una stella.

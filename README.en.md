@@ -46,6 +46,7 @@ Supports academic scenarios including paper writing, literature analysis, code i
 - 🔬 **Academic Specialization**: Deeply optimized for academic scenarios, supporting multiple academic tasks
 - 🌐 **Multi-Model Support**: Integrates mainstream AI models including GPT, Claude, Gemini, Deepseek, Qwen, and more
 - 🤖 **Academic Agent Support**: Integrates advanced agent frameworks and service protocols, supports external tool calling and academic function expansion
+- 🖼️ **Scientific Illustration Generation**: A dedicated GPT Image 2 panel for graphical abstracts, paper figures, concept diagrams, and presentation assets
 - 📚 **Document Processing**: Intelligent processing of various formats including PDF, LaTeX, Markdown, and more
 - 🎨 **User-Friendly Interface**: Newly designed tech-style interactive interface based on Gradio, supporting dark mode and multiple themes
 - 🔧 **Highly Customizable**: Supports custom plugins and shortcuts to meet personalized needs
@@ -87,7 +88,7 @@ Supports academic scenarios including paper writing, literature analysis, code i
 | | Dynamic Service Management | Supports dynamic loading, unloading, and configuration updates of MCP services |
 | 🤖 **Academic Agents** | External Tool Calling | Supports agent tools like chart visualization, map weather, web search, etc. |
 | | Tool Call Visualization | Complete display of intermediate processes and execution results of tool calls |
-| | Multi-user Isolation | Independent agent states and API keys for each user, ensuring privacy and security |
+| | Session & File Partitioning | With authentication enabled, uploads and most generated files are partitioned by username |
 | | One-click Enablement | Quickly enable agent functions via the "Academic Agent" button |
 | | Free and Open | Academic agent services are free and open for academic users |
 | 🔄 **Interaction Flow** | Transparent Execution | Real-time display of agent reasoning process and tool selection logic |
@@ -99,6 +100,34 @@ Supports academic scenarios including paper writing, literature analysis, code i
 | | Button Interaction Optimization | 3D visual button design, smooth state transitions and glow animations |
 
 </div>
+
+## 🎨 Scientific Illustration Generation (GPT Image 2)
+
+Academic Agents Studio includes a dedicated Drawing panel for graphical abstracts, research workflow diagrams, conceptual figures, poster assets, and presentation illustrations. It calls `gpt-image-2` through an OpenAI-compatible Images API and runs generation as a background job so the normal chat callback is not held open.
+
+### How to use it
+
+1. Expand the **Drawing** panel in the interface.
+2. Describe the subject, layout, visual style, text language, and intended use.
+3. Select the resolution, quality, and output format, then click **Generate Image (GPT Image 2)**.
+4. A loading indicator is shown while the job runs. Use the **Stop** button when the result is no longer needed.
+5. When complete, preview the image or download the original file.
+
+Supported options:
+
+- Resolution: `auto`, `1024x1024`, `1536x1024`, `1024x1536`, `2048x2048`, `2048x1152`, `3840x2160`, `2160x3840`
+- Quality: `low`, `medium`, `high`, `auto`
+- Format: `png`, `jpeg`, `webp`
+
+The related defaults are defined in `config.py`:
+
+```python
+IMAGE_API_URL = "https://api.aiearth.dev/v1/images/generations"
+IMAGE_MODEL = "gpt-image-2"
+IMAGE_TIMEOUT_SECONDS = 180
+```
+
+Docker and server deployments can override them with `GPT_ACADEMIC_IMAGE_API_URL`, `GPT_ACADEMIC_IMAGE_MODEL`, and `GPT_ACADEMIC_IMAGE_TIMEOUT_SECONDS`. Image generation uses `API_KEY` (or `GPT_ACADEMIC_API_KEY`) by default. The token must be authorized for the configured image model; otherwise the API returns `HTTP 403`.
 
 ### 🔧 Inherited Features from CAS Academic GPT
 
