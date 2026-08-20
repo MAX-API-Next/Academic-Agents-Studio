@@ -86,7 +86,7 @@ def 图片生成_GPT_IMAGE(prompt, llm_kwargs, plugin_kwargs, chatbot, history, 
     except ImageGenerationError as exc:
         chatbot[-1] = [
             prompt,
-            f"[Local Message] 图片生成失败：{html.escape(str(exc))}",
+            f"✖ 图片生成失败：{html.escape(str(exc))}",
         ]
         yield from update_ui(chatbot=chatbot, history=history, msg="图片生成失败")
         return

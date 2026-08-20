@@ -497,7 +497,7 @@ def main():
                 status_message = "已停止该任务"
             else:
                 safe_error = html.escape(job.error or "未知错误")
-                reply = f"[Local Message] 图片生成失败：{safe_error}"
+                reply = f"✖ 图片生成失败：{safe_error}"
                 status_message = "图片生成失败"
             chatbot_value = replace_drawing_job_message(
                 chatbot_value,
