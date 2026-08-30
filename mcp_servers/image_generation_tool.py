@@ -42,6 +42,10 @@ class AcademicImageGenerationTool(BaseTool):
                 "enum": ["png", "jpeg", "webp"],
                 "description": "输出文件格式。",
             },
+            "model": {
+                "type": "string",
+                "description": "可选图片模型；省略时使用系统默认模型。",
+            },
         },
         "required": ["prompt"],
     }
@@ -64,6 +68,7 @@ class AcademicImageGenerationTool(BaseTool):
             "IMAGE_TIMEOUT_SECONDS",
             "proxies",
         )
+        model = params.get("model") or model
         api_key = select_api_key(self.api_keys, model)
         result = generate_image(
             prompt=params["prompt"],
@@ -167,5 +172,13 @@ def format_academic_image_result(result_text, tool=None):
     return (
         f'<div align="center"><img src="file={safe_path}" alt="生成的学术插图"></div>'
         f'<br>模型：<code>{safe_model}</code>，尺寸：<code>{safe_size}</code>'
-        f'<br><a href="file={safe_path}" target="_blank">下载原图</a>'
+        f'<br><div class="image-result-actions">'
+        f'<a class="image-result-download" href="file={safe_path}" target="_blank">下载原图</a>'
+        f'<button type="button" class="image-edit-trigger" '
+        f'data-image-source="{safe_path}">继续编辑</button></div>'
+        f'<div class="image-edit-inline" data-image-source="{safe_path}" hidden>'
+        '<textarea class="image-edit-inline-input" rows="3" '
+        'placeholder="输入对当前图片的修改要求" aria-label="继续编辑提示词"></textarea>'
+        '<button type="button" class="image-edit-inline-submit">继续生成</button>'
+        '</div>'
     )

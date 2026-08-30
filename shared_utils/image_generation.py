@@ -1,5 +1,6 @@
 import base64
 import binascii
+import mimetypes
 import os
 import time
 import uuid
@@ -22,6 +23,7 @@ SUPPORTED_IMAGE_SIZES = {
 }
 SUPPORTED_IMAGE_QUALITIES = {"auto", "low", "medium", "high"}
 SUPPORTED_IMAGE_FORMATS = {"png", "jpeg", "webp"}
+_IMAGE_MODEL_MARKERS = ("image", "dall-e", "dall_e", "flux", "imagen", "wanx", "qwen-image")
 
 
 class ImageGenerationError(RuntimeError):
@@ -163,6 +165,156 @@ def generate_image(
         request_id=request_id,
         source_url=source_url,
     )
+
+
+def list_image_models(*, api_key, endpoint, timeout=30, proxies=None, session=None):
+    """Return image-capable models exposed by the current API key.
+
+    MAX API exposes the key-filtered model list through the OpenAI-compatible
+    ``GET /v1/models`` endpoint.  A provider that does not expose that endpoint
+    is treated as unknown and returns an empty list so the UI can clearly
+    report that the current key has no discoverable image models.
+    """
+    if not api_key or not api_key.strip():
+        raise ImageGenerationError("未配置图片 API Key。")
+    models_endpoint = endpoint.split("/images/", 1)[0].rstrip("/") + "/models"
+    client = session or requests
+    try:
+        response = client.get(
+            models_endpoint,
+            headers={"Authorization": f"Bearer {api_key.strip()}"},
+            proxies=proxies,
+            timeout=timeout,
+        )
+    except requests.RequestException as exc:
+        raise ImageGenerationError(f"图片模型列表获取失败：{exc}") from exc
+    if not response.ok:
+        raise ImageGenerationError(_format_api_error(response, response.headers.get("x-request-id")))
+    try:
+        payload = response.json()
+        records = payload.get("data", []) if isinstance(payload, dict) else []
+        model_ids = [str(item.get("id", "")).strip() for item in records if isinstance(item, dict)]
+    except (ValueError, TypeError) as exc:
+        raise ImageGenerationError("图片模型列表返回格式不正确。") from exc
+    return sorted({model for model in model_ids if model and _looks_like_image_model(model)}, key=str.lower)
+
+
+def edit_image(
+    *,
+    prompt,
+    image_path,
+    api_key,
+    output_dir,
+    endpoint,
+    model="gpt-image-1",
+    size="auto",
+    quality="medium",
+    output_format="png",
+    timeout=180,
+    proxies=None,
+    session=None,
+    cancel_event=None,
+):
+    """Edit an existing image through MAX API's OpenAI-compatible endpoint."""
+    prompt = (prompt or "").strip()
+    if not prompt:
+        raise ImageGenerationError("图片编辑提示词不能为空。")
+    if not api_key or not api_key.strip():
+        raise ImageGenerationError("未配置 AIOAGI API Key，请先在设置中填写兼容渠道密钥。")
+    if not image_path or not os.path.isfile(image_path):
+        raise ImageGenerationError("待编辑图片不存在。")
+    if size not in SUPPORTED_IMAGE_SIZES:
+        raise ImageGenerationError(f"不支持的图片尺寸：{size}")
+    if quality not in SUPPORTED_IMAGE_QUALITIES:
+        raise ImageGenerationError(f"不支持的图片质量：{quality}")
+    if output_format not in SUPPORTED_IMAGE_FORMATS:
+        raise ImageGenerationError(f"不支持的图片格式：{output_format}")
+    _raise_if_cancelled(cancel_event)
+    edit_endpoint = endpoint.split("/images/", 1)[0].rstrip("/") + "/images/edits"
+    client = session or requests
+    mime_type = mimetypes.guess_type(image_path)[0] or "image/png"
+    try:
+        with open(image_path, "rb") as image_file:
+            image_bytes = image_file.read()
+        if "qwen-image-edit" in model.lower():
+            # MAX API's Qwen image-edit adapter accepts an OpenAI-compatible
+            # JSON body whose image content is a data URL (base64 encoded).
+            encoded = base64.b64encode(image_bytes).decode("ascii")
+            data = {
+                "model": model,
+                "input": {"messages": [{"role": "user", "content": [
+                    {"image": f"data:{mime_type};base64,{encoded}"},
+                    {"text": prompt},
+                ]}]},
+                "parameters": {"n": 1, "size": size, "watermark": False},
+            }
+            response = client.post(
+                edit_endpoint,
+                headers={"Authorization": f"Bearer {api_key.strip()}", "Content-Type": "application/json"},
+                json=data,
+                proxies=proxies,
+                timeout=timeout,
+            )
+        else:
+            files = {"image": (os.path.basename(image_path), image_bytes, mime_type)}
+            data = {"model": model, "prompt": prompt, "n": "1", "size": size}
+            # DALL·E 2/3 reject newer GPT Image-only fields; MAX API forwards
+            # these fields to the selected upstream adapter.
+            if model.lower().startswith("gpt-image"):
+                data["quality"] = quality
+                data["output_format"] = output_format
+            response = client.post(
+                edit_endpoint,
+                headers={"Authorization": f"Bearer {api_key.strip()}"},
+                data=data,
+                files=files,
+                proxies=proxies,
+                timeout=timeout,
+            )
+    except requests.RequestException as exc:
+        if cancel_event is not None and cancel_event.is_set():
+            raise ImageGenerationCancelled("图片生成已停止。") from exc
+        raise ImageGenerationError(f"图片接口连接失败：{exc}") from exc
+    _raise_if_cancelled(cancel_event)
+    request_id = response.headers.get("x-request-id")
+    if not response.ok:
+        raise ImageGenerationError(_format_api_error(response, request_id))
+    try:
+        body = response.json()
+        image_data = body["data"][0]
+    except (ValueError, KeyError, IndexError, TypeError) as exc:
+        raise ImageGenerationError("图片接口返回格式不正确，未找到 data[0]。") from exc
+    source_url = image_data.get("url")
+    encoded_image = image_data.get("b64_json")
+    if encoded_image:
+        try:
+            image_bytes = base64.b64decode(encoded_image, validate=True)
+        except (ValueError, binascii.Error) as exc:
+            raise ImageGenerationError("图片接口返回了无效的 base64 数据。") from exc
+    elif source_url:
+        image_bytes = _download_image(client, source_url, proxies=proxies, timeout=timeout, cancel_event=cancel_event)
+    else:
+        raise ImageGenerationError("图片接口既未返回 b64_json，也未返回 url。")
+    _raise_if_cancelled(cancel_event)
+    os.makedirs(output_dir, exist_ok=True)
+    filename = f"Image-edit-{time.strftime('%Y-%m-%d-%H-%M-%S')}-{uuid.uuid4().hex[:8]}.{output_format}"
+    file_path = os.path.abspath(os.path.join(output_dir, filename))
+    try:
+        with open(file_path, "wb") as image_file:
+            image_file.write(image_bytes)
+        _raise_if_cancelled(cancel_event)
+    except ImageGenerationCancelled:
+        try:
+            os.remove(file_path)
+        except FileNotFoundError:
+            pass
+        raise
+    return ImageGenerationResult(file_path, model, size, quality, output_format, request_id, source_url)
+
+
+def _looks_like_image_model(model):
+    lowered = model.lower()
+    return any(marker in lowered for marker in _IMAGE_MODEL_MARKERS)
 
 
 def _raise_if_cancelled(cancel_event):

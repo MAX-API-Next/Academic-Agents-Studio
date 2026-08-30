@@ -113,6 +113,52 @@ function complete_image_job_event(jobId) {
     click_drawing_result_when_ready(jobId);
 }
 
+function prepare_image_edit(source) {
+    if (!source) {
+        return;
+    }
+    push_data_to_gradio_component(source, "drawing_edit_source", "str");
+    document.querySelectorAll(".image-edit-inline").forEach(editor => {
+        if (editor.dataset.imageSource === source) {
+            editor.hidden = false;
+            const input = editor.querySelector(".image-edit-inline-input");
+            if (input) input.focus();
+        }
+    });
+}
+
+function submit_image_edit_inline(button) {
+    const editor = button && button.closest(".image-edit-inline");
+    if (!editor) return;
+    const input = editor.querySelector(".image-edit-inline-input");
+    const prompt = input && input.value.trim();
+    const source = editor.dataset.imageSource;
+    if (!prompt || !source) return;
+    push_data_to_gradio_component(source, "drawing_edit_source", "str");
+    push_data_to_gradio_component(prompt, "drawing_continue_prompt", "str");
+    const continueButton = document.getElementById("drawing_continue_btn");
+    if (continueButton) setTimeout(() => continueButton.click(), 80);
+    button.disabled = true;
+    button.textContent = "处理中…";
+}
+
+document.addEventListener("keydown", event => {
+    if (event.key !== "Enter" || !event.ctrlKey || !event.target.matches?.(".image-edit-inline-input")) return;
+    event.preventDefault();
+    submit_image_edit_inline(event.target.closest(".image-edit-inline")?.querySelector(".image-edit-inline-submit"));
+});
+
+document.addEventListener("click", event => {
+    const submitButton = event.composedPath
+        ? event.composedPath().find(element => element.matches && element.matches(".image-edit-inline-submit"))
+        : event.target.closest && event.target.closest(".image-edit-inline-submit");
+    if (submitButton) {
+        event.preventDefault();
+        event.stopPropagation();
+        submit_image_edit_inline(submitButton);
+    }
+});
+
 async function cancel_image_job(jobId, button) {
     if (!jobId) {
         return;
@@ -158,6 +204,14 @@ document.addEventListener("click", event => {
         ? event.composedPath().find(element => element.matches && element.matches(".image-job-cancel"))
         : event.target.closest && event.target.closest(".image-job-cancel");
     if (!button) {
+        const editButton = event.composedPath
+            ? event.composedPath().find(element => element.matches && element.matches(".image-edit-trigger"))
+            : event.target.closest && event.target.closest(".image-edit-trigger");
+        if (editButton) {
+            event.preventDefault();
+            event.stopPropagation();
+            prepare_image_edit(editButton.dataset.imageSource);
+        }
         return;
     }
     event.preventDefault();
@@ -217,7 +271,8 @@ function start_image_job_event_stream(jobId) {
         if (source.readyState === EventSource.CLOSED || consecutiveErrors >= 3) {
             source.close();
             delete imageJobEventSources[jobId];
-            forget_image_job(jobId);
+            // Keep the recovery record: the server-side job may already be
+            // complete and a page refresh should be able to resume it.
             set_drawing_generate_button_disabled(false);
         }
     };

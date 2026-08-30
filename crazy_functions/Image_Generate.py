@@ -12,6 +12,7 @@ from toolbox import (
 from crazy_functions.multi_stage.multi_stage_utils import GptAcademicState
 from shared_utils.image_generation import (
     ImageGenerationError,
+    edit_image as edit_image_via_api,
     generate_image as generate_image_via_api,
 )
 
@@ -22,18 +23,55 @@ def generate_gpt_image_result(
     plugin_kwargs,
     user_name,
     *,
+    model=None,
     cancel_event=None,
 ):
-    model, endpoint, timeout, proxies = get_conf(
+    configured_model, endpoint, timeout, proxies = get_conf(
         "IMAGE_MODEL",
         "IMAGE_API_URL",
         "IMAGE_TIMEOUT_SECONDS",
         "proxies",
     )
+    model = model or configured_model
     api_key = select_api_key(llm_kwargs["api_key"], model)
     output_dir = get_log_folder(user_name, plugin_name="image_gen")
     return generate_image_via_api(
         prompt=prompt,
+        api_key=api_key,
+        output_dir=output_dir,
+        endpoint=endpoint,
+        model=model,
+        size=plugin_kwargs.get("resolution", "auto"),
+        quality=plugin_kwargs.get("quality", "medium"),
+        output_format=plugin_kwargs.get("output_format", "png"),
+        timeout=timeout,
+        proxies=proxies,
+        cancel_event=cancel_event,
+    )
+
+
+def edit_gpt_image_result(
+    prompt,
+    image_path,
+    llm_kwargs,
+    plugin_kwargs,
+    user_name,
+    *,
+    model=None,
+    cancel_event=None,
+):
+    configured_model, endpoint, timeout, proxies = get_conf(
+        "IMAGE_MODEL",
+        "IMAGE_API_URL",
+        "IMAGE_TIMEOUT_SECONDS",
+        "proxies",
+    )
+    model = model or configured_model
+    api_key = select_api_key(llm_kwargs["api_key"], model)
+    output_dir = get_log_folder(user_name, plugin_name="image_gen")
+    return edit_image_via_api(
+        prompt=prompt,
+        image_path=image_path,
         api_key=api_key,
         output_dir=output_dir,
         endpoint=endpoint,
@@ -56,7 +94,15 @@ def build_image_result_html(result):
     return (
         f'<div align="center"><img src="file={safe_path}" alt="生成的图片"></div>'
         f'<br>模型：<code>{safe_model}</code>，尺寸：<code>{safe_size}</code>'
-        f'<br><a href="file={safe_path}" target="_blank">下载原图</a>'
+        f'<br><div class="image-result-actions">'
+        f'<a class="image-result-download" href="file={safe_path}" target="_blank">下载原图</a>'
+        f'<button type="button" class="image-edit-trigger" '
+        f'data-image-source="{safe_path}">继续编辑</button></div>'
+        f'<div class="image-edit-inline" data-image-source="{safe_path}" hidden>'
+        '<textarea class="image-edit-inline-input" rows="3" '
+        'placeholder="输入对当前图片的修改要求" aria-label="继续编辑提示词"></textarea>'
+        '<button type="button" class="image-edit-inline-submit">继续生成</button>'
+        '</div>'
     )
 
 
