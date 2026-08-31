@@ -112,7 +112,7 @@ Academic Agents Studio includes a dedicated Drawing panel for graphical abstract
 3. On page load, the panel refreshes the image model list for the current API key and automatically filters models unsupported by the current Images endpoint.
 4. To edit an existing image, upload a PNG, JPEG, or WebP file under **Attached Image** and click **Generate Image**.
 5. A loading indicator is shown while the job runs. Use the **Stop** button when the result is no longer needed.
-6. When complete, preview or download the image. Click **Continue Editing** beside the result, enter a multi-line edit prompt below that image, and click **Continue Generation**. The current image and the current model, resolution, quality, and format settings are reused for the new image.
+6. When complete, preview or download the image. Click **Continue Editing** beside the result, enter a multi-line edit prompt below that image, and click **Continue Generation**. The source image and its original model, resolution, quality, and format settings are reused for the new image.
 
 Supported options:
 
