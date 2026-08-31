@@ -122,6 +122,30 @@ def select_api_key(keys, llm_model):
     return api_key
 
 
+def select_image_api_key(keys, image_model="image"):
+    """Select a key for the OpenAI-compatible Images API.
+
+    Image model names may belong to different upstream providers (for example
+    ``gemini-*-image``), while MAX API still authenticates the request with a
+    single bearer token.  Do not route these names through the text-model key
+    rules: prefer recognized OpenAI-compatible keys and let MAX API validate
+    opaque/custom tokens that this client cannot classify.
+    """
+    import random
+
+    key_list = [key.strip() for key in (keys or "").split(",") if key.strip()]
+    if not key_list:
+        raise RuntimeError("未配置图片 API Key，请先在设置中填写兼容渠道密钥。")
+    recognized = [
+        key for key in key_list
+        if is_openai_api_key(key) or is_api2d_key(key) or is_azure_api_key(key)
+        or is_openroute_api_key(key) or is_cohere_api_key(key)
+    ]
+    # MAX API tokens and privately issued keys may not match legacy regexes.
+    # Passing them through produces the provider's precise 401/403 response.
+    return random.choice(recognized or key_list)
+
+
 def select_api_key_for_embed_models(keys, llm_model):
     import random
     avail_key_list = []

@@ -24,6 +24,12 @@ SUPPORTED_IMAGE_SIZES = {
 SUPPORTED_IMAGE_QUALITIES = {"auto", "low", "medium", "high"}
 SUPPORTED_IMAGE_FORMATS = {"png", "jpeg", "webp"}
 _IMAGE_MODEL_MARKERS = ("image", "dall-e", "dall_e", "flux", "imagen", "wanx", "qwen-image")
+SUPPORTED_DRAWING_MODELS = {
+    "gpt-image-1.5",
+    "gpt-image-2",
+    "gpt-image-2-4k",
+    "gpt-image-2-4k-auto",
+}
 
 
 class ImageGenerationError(RuntimeError):
@@ -193,7 +199,11 @@ def list_image_models(*, api_key, endpoint, timeout=30, proxies=None, session=No
     try:
         payload = response.json()
         records = payload.get("data", []) if isinstance(payload, dict) else []
-        model_ids = [str(item.get("id", "")).strip() for item in records if isinstance(item, dict)]
+        model_ids = [
+            str(item.get("id", "")).strip()
+            for item in records
+            if isinstance(item, dict) and _supports_images_generation(item)
+        ]
     except (ValueError, TypeError) as exc:
         raise ImageGenerationError("图片模型列表返回格式不正确。") from exc
     return sorted({model for model in model_ids if model and _looks_like_image_model(model)}, key=str.lower)
@@ -315,6 +325,39 @@ def edit_image(
 def _looks_like_image_model(model):
     lowered = model.lower()
     return any(marker in lowered for marker in _IMAGE_MODEL_MARKERS)
+
+
+def _supports_images_generation(record):
+    """Check whether a model is suitable for this client's image endpoint.
+
+    MAX API may expose Gemini/Grok image-capable models through chat or Gemini
+    protocols while no `/v1/images/generations` channel is configured.  Those
+    models must not be offered by the drawing panel, which submits the OpenAI
+    Images request shape.
+    """
+    model = str(record.get("id", "")).strip()
+    if not model or not _looks_like_image_model(model):
+        return False
+    # The current AIOAGI/MAX API deployment has verified working channels for
+    # these GPT image models. Other catalog entries may be visible to the key
+    # while lacking a routable image channel or a compatible request schema.
+    if model.lower() not in SUPPORTED_DRAWING_MODELS:
+        return False
+    endpoint_types = record.get("supported_endpoint_types")
+    if not endpoint_types:
+        # Providers that do not advertise endpoint metadata retain legacy
+        # marker-based discovery for compatibility.
+        return True
+    if isinstance(endpoint_types, str):
+        endpoint_types = {endpoint_types.lower()}
+    else:
+        endpoint_types = {str(value).lower() for value in endpoint_types}
+    lowered = model.lower()
+    if "image-generation" in endpoint_types:
+        return True
+    if lowered.startswith("gpt-image"):
+        return True
+    return "openai" in endpoint_types and lowered.startswith(("dall-e", "flux", "imagen", "wanx"))
 
 
 def _raise_if_cancelled(cancel_event):

@@ -15,6 +15,7 @@ from shared_utils.image_generation import (
     ImageGenerationCancelled,
     ImageGenerationError,
     generate_image,
+    list_image_models,
 )
 from shared_utils.config_loader import get_conf
 
@@ -58,6 +59,25 @@ class FakeSession:
 
 
 class ImageGenerationClientTests(unittest.TestCase):
+    def test_model_list_keeps_only_models_supported_by_images_endpoint(self):
+        session = FakeSession(FakeResponse({
+            "data": [
+                {"id": "gpt-image-2", "supported_endpoint_types": ["openai"]},
+                {"id": "gpt-image-2-4k", "supported_endpoint_types": ["openai"]},
+                {"id": "gpt-image-1", "supported_endpoint_types": ["image-generation", "openai"]},
+                {"id": "qwen-image-3.0", "supported_endpoint_types": ["image-generation"]},
+                {"id": "gemini-2.5-flash-image-preview", "supported_endpoint_types": ["openai", "gemini"]},
+                {"id": "grok-4.2-image", "supported_endpoint_types": ["openai"]},
+            ],
+        }))
+        models = list_image_models(
+            api_key="secret",
+            endpoint="https://api.aiearth.dev/v1/images/generations",
+            session=session,
+        )
+        self.assertEqual(models, ["gpt-image-2", "gpt-image-2-4k"])
+        self.assertEqual(session.get_call[0], "https://api.aiearth.dev/v1/models")
+
     def test_cancelled_request_does_not_reach_provider(self):
         session = FakeSession(FakeResponse({"data": []}))
         cancel_event = threading.Event()

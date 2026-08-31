@@ -95,7 +95,7 @@ def main():
         get_log_folder,
         on_file_uploaded,
         on_report_generated,
-        select_api_key,
+        select_image_api_key,
     )
 
     # MCP相关模块
@@ -257,7 +257,7 @@ def main():
                         drawing_refresh_models_btn = gr.Button(
                             "刷新可用模型", elem_id="drawing_refresh_models_btn", scale=1, min_width=150,
                         ).style(size="sm")
-                    drawing_model_status = gr.Markdown("正在根据当前 API Key 获取可用图片模型…", elem_id="drawing_model_status")
+                    drawing_model_status = gr.Markdown("正在刷新模型列表…", elem_id="drawing_model_status")
                     with gr.Row():
                         drawing_resolution = gr.Dropdown(
                             DRAWING_RESOLUTION_OPTIONS, value="auto", interactive=True,
@@ -438,7 +438,7 @@ def main():
         def refresh_drawing_models(request: gr.Request, cookies_value):
             owner_key = cookies_value.get("api_key", "") if isinstance(cookies_value, dict) else ""
             try:
-                model_key = select_api_key(owner_key, image_model)
+                model_key = select_image_api_key(owner_key, image_model)
                 models = list_image_models(
                     api_key=model_key,
                     endpoint=get_conf("IMAGE_API_URL"),
@@ -449,7 +449,7 @@ def main():
                 return gr.update(choices=[], value=None), f"模型列表获取失败：{html.escape(str(exc))}。请检查当前 API Key。"
             if not models:
                 return gr.update(choices=[], value=None), "当前 API Key 未返回可用的图片模型。"
-            return gr.update(choices=models, value=None), f"已根据当前 API Key 找到 {len(models)} 个图片模型，请手动选择。"
+            return gr.update(choices=models, value=None), "模型列表已刷新"
 
         def submit_drawing_job(
             request: gr.Request, model, resolution, quality, output_format,

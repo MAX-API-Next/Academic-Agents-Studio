@@ -8,7 +8,7 @@ from qwen_agent.tools.base import BaseTool
 
 from shared_utils.image_generation import ImageGenerationError, generate_image
 from shared_utils.config_loader import get_conf
-from shared_utils.key_pattern_manager import select_api_key
+from shared_utils.key_pattern_manager import select_image_api_key
 
 
 IMAGE_RESULT_KIND = "academic_image_result"
@@ -69,7 +69,7 @@ class AcademicImageGenerationTool(BaseTool):
             "proxies",
         )
         model = params.get("model") or model
-        api_key = select_api_key(self.api_keys, model)
+        api_key = select_image_api_key(self.api_keys, model)
         result = generate_image(
             prompt=params["prompt"],
             api_key=api_key,

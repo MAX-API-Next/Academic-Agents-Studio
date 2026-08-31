@@ -7,6 +7,7 @@ from toolbox import (
     get_user,
     promote_file_to_downloadzone,
     select_api_key,
+    select_image_api_key,
     update_ui,
 )
 from crazy_functions.multi_stage.multi_stage_utils import GptAcademicState
@@ -33,7 +34,7 @@ def generate_gpt_image_result(
         "proxies",
     )
     model = model or configured_model
-    api_key = select_api_key(llm_kwargs["api_key"], model)
+    api_key = select_image_api_key(llm_kwargs["api_key"], model)
     output_dir = get_log_folder(user_name, plugin_name="image_gen")
     return generate_image_via_api(
         prompt=prompt,
@@ -67,7 +68,7 @@ def edit_gpt_image_result(
         "proxies",
     )
     model = model or configured_model
-    api_key = select_api_key(llm_kwargs["api_key"], model)
+    api_key = select_image_api_key(llm_kwargs["api_key"], model)
     output_dir = get_log_folder(user_name, plugin_name="image_gen")
     return edit_image_via_api(
         prompt=prompt,

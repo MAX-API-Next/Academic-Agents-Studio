@@ -46,7 +46,7 @@ Supports academic scenarios including paper writing, literature analysis, code i
 - 🔬 **Academic Specialization**: Deeply optimized for academic scenarios, supporting multiple academic tasks
 - 🌐 **Multi-Model Support**: Integrates mainstream AI models including GPT, Claude, Gemini, Deepseek, Qwen, and more
 - 🤖 **Academic Agent Support**: Integrates advanced agent frameworks and service protocols, supports external tool calling and academic function expansion
-- 🖼️ **Scientific Illustration Generation**: A dedicated GPT Image 2 panel for graphical abstracts, paper figures, concept diagrams, and presentation assets
+- 🖼️ **Scientific Illustration & Image Editing**: A dedicated panel that discovers image models allowed by the current API key and supports generation, attached-image editing, and iterative editing
 - 📚 **Document Processing**: Intelligent processing of various formats including PDF, LaTeX, Markdown, and more
 - 🎨 **User-Friendly Interface**: Newly designed tech-style interactive interface based on Gradio, supporting dark mode and multiple themes
 - 🔧 **Highly Customizable**: Supports custom plugins and shortcuts to meet personalized needs
@@ -101,17 +101,18 @@ Supports academic scenarios including paper writing, literature analysis, code i
 
 </div>
 
-## 🎨 Scientific Illustration Generation (GPT Image 2)
+## 🎨 Scientific Illustration & Image Editing
 
-Academic Agents Studio includes a dedicated Drawing panel for graphical abstracts, research workflow diagrams, conceptual figures, poster assets, and presentation illustrations. It calls `gpt-image-2` through an OpenAI-compatible Images API and runs generation as a background job so the normal chat callback is not held open.
+Academic Agents Studio includes a dedicated Drawing panel for graphical abstracts, research workflow diagrams, conceptual figures, poster assets, and presentation illustrations. It calls image models through the MAX API / OpenAI-compatible Images API and runs generation as a background job so the normal chat callback is not held open.
 
 ### How to use it
 
 1. Expand the **Drawing** panel in the interface.
-2. Describe the subject, layout, visual style, text language, and intended use.
-3. Select the resolution, quality, and output format, then click **Generate Image (GPT Image 2)**.
-4. A loading indicator is shown while the job runs. Use the **Stop** button when the result is no longer needed.
-5. When complete, preview the image or download the original file.
+2. Enter a prompt in **Image Description**. Include the subject, layout, visual style, text language, and intended use.
+3. On page load, the panel refreshes the image model list for the current API key and automatically filters models unsupported by the current Images endpoint.
+4. To edit an existing image, upload a PNG, JPEG, or WebP file under **Attached Image** and click **Generate Image**.
+5. A loading indicator is shown while the job runs. Use the **Stop** button when the result is no longer needed.
+6. When complete, preview or download the image. Click **Continue Editing** beside the result, enter a multi-line edit prompt below that image, and click **Continue Generation**. The current image and the current model, resolution, quality, and format settings are reused for the new image.
 
 Supported options:
 
@@ -127,7 +128,7 @@ IMAGE_MODEL = "gpt-image-2"
 IMAGE_TIMEOUT_SECONDS = 180
 ```
 
-Docker and server deployments can override them with `GPT_ACADEMIC_IMAGE_API_URL`, `GPT_ACADEMIC_IMAGE_MODEL`, and `GPT_ACADEMIC_IMAGE_TIMEOUT_SECONDS`. Image generation uses `API_KEY` (or `GPT_ACADEMIC_API_KEY`) by default. The token must be authorized for the configured image model; otherwise the API returns `HTTP 403`.
+Docker and server deployments can override them with `GPT_ACADEMIC_IMAGE_API_URL`, `GPT_ACADEMIC_IMAGE_MODEL`, and `GPT_ACADEMIC_IMAGE_TIMEOUT_SECONDS`. Model discovery and image generation use `API_KEY` (or `GPT_ACADEMIC_API_KEY`) by default. The token must be authorized for the selected image model or the API returns `HTTP 403`.
 
 ### 🔧 Inherited Features from CAS Academic GPT
 
