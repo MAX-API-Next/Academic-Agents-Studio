@@ -7,7 +7,7 @@ help_menu_description = \
 如遇到Bug请前往[Bug反馈](https://github.com/MAX-API-Next/Academic-Agents-Studio/issues).
 </br></br>普通对话使用说明: 1. 输入问题; 2. 点击提交
 </br></br>基础功能区使用说明: 1. 输入文本; 2. 点击任意基础功能区按钮
-</br></br>绘图功能区使用说明: 1. 输入图片描述; 2. 选择分辨率、质量和格式; 3. 点击生成图片
+</br></br>绘图功能区使用说明: 1. 输入图片描述并选择可用图片模型; 2. 选择分辨率、质量和格式; 3. 点击生成图片; 4. 可在结果旁点击“继续编辑”，或上传图片后输入编辑提示词
 </br></br>函数插件区使用说明: 1. 输入路径/问题, 或者上传文件; 2. 点击任意函数插件区按钮
 </br></br>虚空终端使用说明: 点击虚空终端, 然后根据提示输入指令, 再次点击虚空终端
 </br></br>如何保存对话: 点击保存当前的对话按钮
@@ -48,6 +48,7 @@ DRAWING_FORMAT_OPTIONS = ("png", "jpeg", "webp")
 
 
 def build_drawing_plugin_kwargs(resolution, quality, output_format):
+    """Map drawing controls to the image plugin request fields."""
     return {
         "resolution": resolution,
         "quality": quality,
@@ -55,13 +56,51 @@ def build_drawing_plugin_kwargs(resolution, quality, output_format):
     }
 
 
-def build_drawing_pending_message(job_id, model):
+def archive_drawing_upload(source, owner):
+    """Copy a Gradio-created image file into the current user's image directory."""
+    import shutil
+    import tempfile
+    import uuid
+
+    from toolbox import get_log_folder
+
+    source_real = os.path.realpath(os.path.abspath(source or ""))
+    upload_root = os.path.realpath(os.path.abspath(
+        os.environ.get("GRADIO_TEMP_DIR")
+        or os.path.join(tempfile.gettempdir(), "gradio")
+    ))
+    try:
+        is_gradio_upload = os.path.commonpath([upload_root, source_real]) == upload_root
+    except ValueError:
+        is_gradio_upload = False
+    extension = os.path.splitext(source_real)[1].lower()
+    if not is_gradio_upload or not os.path.isfile(source_real):
+        raise ValueError("无法访问该附加图片")
+    if extension not in {".png", ".jpg", ".jpeg", ".webp"}:
+        raise ValueError("附加图片必须是 PNG、JPEG 或 WebP 文件")
+
+    output_root = get_log_folder(owner, plugin_name="image_gen")
+    os.makedirs(output_root, exist_ok=True)
+    destination = os.path.abspath(os.path.join(
+        output_root,
+        f"Upload-{uuid.uuid4().hex}{extension}",
+    ))
+    shutil.copyfile(source_real, destination)
+    return destination
+
+
+def build_drawing_pending_message(job_id, model, edit_token=None):
+    """Render the pending image job with its spinner and cancellation control."""
     import html
 
     safe_job_id = html.escape(str(job_id), quote=True)
     safe_model = html.escape(str(model), quote=True)
+    edit_attribute = (
+        f' data-image-edit-token="{html.escape(edit_token, quote=True)}"'
+        if edit_token else ""
+    )
     return (
-        f'<div class="image-job-pending" data-image-job-id="{safe_job_id}">'
+        f'<div class="image-job-pending" data-image-job-id="{safe_job_id}"{edit_attribute}>'
         '<span class="image-job-spinner" aria-hidden="true"></span>'
         f'<span class="image-job-pending-text">正在通过 AIOAGI 的 {safe_model} 后台生成图片，请稍候……</span>'
         f'<button type="button" class="image-job-cancel" '
@@ -71,6 +110,7 @@ def build_drawing_pending_message(job_id, model):
 
 
 def replace_drawing_job_message(chatbot, job_id, prompt, reply):
+    """Replace the matching pending image message without disturbing later chat."""
     messages = list(chatbot or [])
     marker = f'data-image-job-id="{job_id}"'
     for index in range(len(messages) - 1, -1, -1):
@@ -94,8 +134,10 @@ def main():
         find_free_port,
         format_io,
         get_conf,
+        get_log_folder,
         on_file_uploaded,
         on_report_generated,
+        select_image_api_key,
     )
 
     # MCP相关模块
@@ -241,11 +283,21 @@ def main():
                 with gr.Accordion("绘图功能区", open=False, elem_id="drawing-panel") as area_drawing_fn:
                     drawing_prompt = gr.Textbox(
                         label="图片描述",
-                        placeholder="描述主体、布局、风格和用途，例如：为 Transformer 论文绘制一张简洁的横版图形摘要",
+                        placeholder="提示词输入：描述主体、布局、风格和用途，例如：为 Transformer 论文绘制一张简洁的横版图形摘要",
                         lines=3,
                         max_lines=8,
                         elem_id="drawing_prompt",
                     )
+                    with gr.Row():
+                        drawing_model = gr.Dropdown(
+                            choices=[],
+                            value=None, interactive=True,
+                            label="图片模型", elem_id="drawing_model",
+                        ).style(container=False)
+                        drawing_refresh_models_btn = gr.Button(
+                            "刷新可用模型", elem_id="drawing_refresh_models_btn", scale=1, min_width=150,
+                        ).style(size="sm")
+                    drawing_model_status = gr.Markdown("正在刷新模型列表…", elem_id="drawing_model_status")
                     with gr.Row():
                         drawing_resolution = gr.Dropdown(
                             DRAWING_RESOLUTION_OPTIONS, value="auto", interactive=True,
@@ -260,10 +312,10 @@ def main():
                             label="格式", elem_id="drawing_format",
                         ).style(container=False)
                     drawing_generate_btn = gr.Button(
-                        "🎨 生成图片（GPT Image 2）",
+                        "🎨 生成图片",
                         variant="primary",
                         elem_id="drawing_generate_btn",
-                        info_str="绘图功能区: 使用 GPT Image 2 生成图片",
+                        info_str="绘图功能区: 使用所选图片模型生成图片",
                     ).style(size="sm")
                     drawing_job_id = gr.Textbox(
                         visible=False,
@@ -274,6 +326,27 @@ def main():
                         visible=False,
                         elem_id="drawing_result_btn",
                     )
+                    drawing_edit_image = gr.Image(
+                        label="附加图片",
+                        type="filepath",
+                        source="upload",
+                        elem_id="drawing_attached_image",
+                    )
+                    drawing_edit_token = gr.Textbox(visible=False, elem_id="drawing_edit_token")
+                    drawing_continue_prompt = gr.Textbox(
+                        label="继续编辑提示词",
+                        placeholder="输入对当前图片的修改要求",
+                        lines=2,
+                        max_lines=6,
+                        visible=False,
+                        elem_id="drawing_continue_prompt",
+                    )
+                    drawing_continue_btn = gr.Button(
+                        "继续生成",
+                        variant="secondary",
+                        visible=False,
+                        elem_id="drawing_continue_btn",
+                    ).style(size="sm")
                 with gr.Accordion("函数插件区", open=False, elem_id="plugin-panel") as area_crazy_fn:
                     with gr.Row():
                         gr.Markdown("<small>插件可读取“输入区”文本/路径作为参数（上传文件自动修正路径）</small>")
@@ -394,17 +467,44 @@ def main():
         import threading
         from crazy_functions.Image_Generate import (
             build_image_result_html,
+            edit_gpt_image_result,
             generate_gpt_image_result,
         )
+        from shared_utils.image_generation import list_image_models
+        from shared_utils.image_edit_authorizations import image_edit_authorizations
         from shared_utils.image_jobs import image_job_manager
 
         image_model = get_conf("IMAGE_MODEL")
 
+        def refresh_drawing_models(request: gr.Request, cookies_value):
+            """Refresh image choices for the current key with a short timeout."""
+            owner_key = cookies_value.get("api_key", "") if isinstance(cookies_value, dict) else ""
+            try:
+                model_key = select_image_api_key(owner_key, image_model)
+                models = list_image_models(
+                    api_key=model_key,
+                    endpoint=get_conf("IMAGE_API_URL"),
+                    timeout=min(get_conf("IMAGE_TIMEOUT_SECONDS"), 5),
+                    proxies=proxies,
+                )
+            except Exception as exc:
+                return gr.update(choices=[], value=None), f"模型列表获取失败：{html.escape(str(exc))}。请检查当前 API Key。"
+            if not models:
+                return gr.update(choices=[], value=None), "当前 API Key 未返回可用的图片模型。"
+            return gr.update(choices=models, value=None), "模型列表已刷新"
+
         def submit_drawing_job(
-            request: gr.Request, resolution, quality, output_format,
-            cookies_value, prompt, chatbot_value, history_value,
+            request: gr.Request, model, resolution, quality, output_format,
+            attached_image, cookies_value, prompt, chatbot_value, history_value,
         ):
+            """Validate drawing inputs and enqueue a generation or upload-edit job."""
             prompt = (prompt or "").strip()
+            if not model:
+                return (
+                    cookies_value, chatbot_value, history_value,
+                    "尚未获取可用图片模型，请稍候或点击刷新可用模型",
+                    "", gr.update(interactive=True),
+                )
             if not prompt:
                 return (
                     cookies_value,
@@ -415,6 +515,15 @@ def main():
                     gr.update(interactive=True),
                 )
             owner = request.username or cookies_value.get("user_name") or default_user_name
+            if attached_image:
+                try:
+                    attached_image = archive_drawing_upload(attached_image, owner)
+                except ValueError as exc:
+                    return (
+                        cookies_value, chatbot_value, history_value,
+                        str(exc),
+                        "", gr.update(interactive=True),
+                    )
             llm_kwargs = {"api_key": cookies_value.get("api_key", "")}
             plugin_kwargs = build_drawing_plugin_kwargs(
                 resolution,
@@ -424,11 +533,18 @@ def main():
             cancel_event = threading.Event()
 
             def run_image_generation():
+                """Execute the provider request in the background worker."""
+                if attached_image:
+                    return edit_gpt_image_result(
+                        prompt, attached_image, llm_kwargs, plugin_kwargs, owner,
+                        model=model, cancel_event=cancel_event,
+                    )
                 return generate_gpt_image_result(
                     prompt,
                     llm_kwargs,
                     plugin_kwargs,
                     owner,
+                    model=model,
                     cancel_event=cancel_event,
                 )
 
@@ -457,7 +573,7 @@ def main():
             chatbot_value = list(chatbot_value or [])
             chatbot_value.append([
                 prompt,
-                build_drawing_pending_message(job.job_id, image_model),
+                build_drawing_pending_message(job.job_id, model),
             ])
             return (
                 cookies_value,
@@ -468,9 +584,64 @@ def main():
                 gr.update(interactive=False),
             )
 
+        def submit_edit_job(
+            request: gr.Request, model, resolution, quality, output_format,
+            edit_prompt, edit_token,
+            cookies_value, chatbot_value, history_value,
+        ):
+            """Resolve a server-issued edit token and enqueue an iterative edit."""
+            prompt = (edit_prompt or "").strip()
+            owner = request.username or cookies_value.get("user_name") or default_user_name
+            if not prompt:
+                return cookies_value, chatbot_value, history_value, "编辑提示词不能为空", "", gr.update(interactive=True)
+            output_root = get_log_folder(owner, plugin_name="image_gen")
+            authorization = image_edit_authorizations.resolve(
+                edit_token,
+                owner=owner,
+                output_root=output_root,
+            )
+            if authorization is None:
+                return cookies_value, chatbot_value, history_value, "该图片的编辑授权无效或已过期", "", gr.update(interactive=True)
+            source = authorization.file_path
+            model = authorization.model or model
+            resolution = authorization.size or resolution
+            quality = authorization.quality or quality
+            output_format = authorization.output_format or output_format
+            if not model:
+                return cookies_value, chatbot_value, history_value, "该图片没有可用的模型信息", "", gr.update(interactive=True)
+            llm_kwargs = {"api_key": cookies_value.get("api_key", "")}
+            plugin_kwargs = build_drawing_plugin_kwargs(resolution, quality, output_format)
+            cancel_event = threading.Event()
+
+            def run_image_edit():
+                """Execute an authorized iterative edit in the background worker."""
+                return edit_gpt_image_result(
+                    prompt, source, llm_kwargs, plugin_kwargs, owner,
+                    model=model, cancel_event=cancel_event,
+                )
+
+            try:
+                job = image_job_manager.submit(
+                    owner=owner,
+                    prompt=prompt,
+                    work=run_image_edit,
+                    cancel_event=cancel_event,
+                )
+            except RuntimeError as exc:
+                chatbot_value = list(chatbot_value or [])
+                chatbot_value.append([prompt, f"[Local Message] 图片任务提交失败：{html.escape(str(exc))}"])
+                return cookies_value, chatbot_value, history_value, "后台图片任务已满，请稍后重试", "", gr.update(interactive=True)
+            chatbot_value = list(chatbot_value or [])
+            chatbot_value.append([
+                prompt,
+                build_drawing_pending_message(job.job_id, model, edit_token),
+            ])
+            return cookies_value, chatbot_value, history_value, "图片编辑任务已提交，正在后台处理", job.job_id, gr.update(interactive=False)
+
         def receive_drawing_job(
             request: gr.Request, job_id, cookies_value, chatbot_value, history_value,
         ):
+            """Render a terminal image job result for its owning user."""
             owner = request.username or cookies_value.get("user_name") or default_user_name
             job = image_job_manager.get(job_id, owner=owner)
             if job is None:
@@ -480,6 +651,7 @@ def main():
                     history_value,
                     "图片任务不存在或已过期",
                     gr.update(interactive=True),
+                    gr.update(interactive=True),
                 )
             if not job.done.is_set():
                 return (
@@ -488,9 +660,20 @@ def main():
                     history_value,
                     "图片仍在后台生成",
                     gr.update(interactive=False),
+                    gr.update(interactive=False),
                 )
             if job.status == "completed":
-                reply = build_image_result_html(job.result)
+                output_root = get_log_folder(owner, plugin_name="image_gen")
+                edit_token = image_edit_authorizations.issue(
+                    owner=owner,
+                    file_path=job.result.file_path,
+                    output_root=output_root,
+                    model=job.result.model,
+                    size=job.result.size,
+                    quality=job.result.quality,
+                    output_format=job.result.output_format,
+                )
+                reply = build_image_result_html(job.result, edit_token)
                 status_message = "图片生成完成，可预览或下载原图"
             elif job.status == "cancelled":
                 reply = "已停止该任务"
@@ -512,19 +695,14 @@ def main():
                 history_value,
                 status_message,
                 gr.update(interactive=True),
+                gr.update(interactive=True),
             )
 
-        drawing_generate_btn.click(
-            None,
-            inputs=None,
-            outputs=None,
-            _js="""()=>set_drawing_generate_button_disabled(true)""",
-        )
         drawing_click_handle = drawing_generate_btn.click(
             submit_drawing_job,
             inputs=[
-                drawing_resolution, drawing_quality, drawing_format,
-                cookies, drawing_prompt, chatbot, history,
+                drawing_model, drawing_resolution, drawing_quality, drawing_format,
+                drawing_edit_image, cookies, drawing_prompt, chatbot, history,
             ],
             outputs=[*output_combo, drawing_job_id, drawing_generate_btn],
             queue=False,
@@ -538,8 +716,40 @@ def main():
         drawing_result_btn.click(
             receive_drawing_job,
             inputs=[drawing_job_id, cookies, chatbot, history],
-            outputs=[*output_combo, drawing_generate_btn],
+            outputs=[*output_combo, drawing_generate_btn, drawing_continue_btn],
             queue=False,
+        )
+        drawing_refresh_models_btn.click(
+            refresh_drawing_models,
+            inputs=[cookies],
+            outputs=[drawing_model, drawing_model_status],
+            queue=False,
+        )
+        def on_drawing_model_changed(model):
+            """Show image model state without changing the chat model label."""
+            model_text = model or "未选择"
+            return "绘画区-模型：" + model_text
+
+        drawing_model.select(
+            on_drawing_model_changed,
+            inputs=[drawing_model],
+            outputs=[drawing_model_status],
+        )
+        drawing_edit_click_handle = drawing_continue_btn.click(
+            submit_edit_job,
+            inputs=[
+                drawing_model, drawing_resolution, drawing_quality, drawing_format,
+                drawing_continue_prompt, drawing_edit_token,
+                cookies, chatbot, history,
+            ],
+            outputs=[*output_combo, drawing_job_id, drawing_continue_btn],
+            queue=False,
+        )
+        drawing_edit_click_handle.then(
+            None,
+            [drawing_job_id],
+            None,
+            _js="(job_id)=>start_image_job_event_stream(job_id)",
         )
 
         # 文件上传区，接收文件后与chatbot的互动
@@ -660,6 +870,13 @@ def main():
 
         # 生成当前浏览器窗口的uuid（刷新失效）
         app_block.load(assign_user_uuid, inputs=[cookies], outputs=[cookies])
+        # 页面打开时立即根据当前 Key 刷新图片模型，不展示未经验证的默认模型。
+        app_block.load(
+            refresh_drawing_models,
+            inputs=[cookies],
+            outputs=[drawing_model, drawing_model_status],
+            queue=False,
+        )
 
         # 初始化（前端）
         from shared_utils.cookie_manager import load_web_cookie_cache__fn_builder

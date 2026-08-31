@@ -19,7 +19,7 @@ from shared_utils.config_loader import set_multi_conf
 from shared_utils.config_loader import read_single_conf_with_lru_cache
 from shared_utils.advanced_markdown_format import format_io
 from shared_utils.advanced_markdown_format import markdown_convertion
-from shared_utils.key_pattern_manager import select_api_key
+from shared_utils.key_pattern_manager import select_api_key, select_image_api_key
 from shared_utils.key_pattern_manager import is_any_api_key
 from shared_utils.key_pattern_manager import what_keys
 from shared_utils.connect_void_terminal import get_chat_handle

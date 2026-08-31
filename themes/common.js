@@ -109,9 +109,69 @@ function complete_image_job_event(jobId) {
         return;
     }
     imageJobTerminalEvents[jobId] = true;
+    const pendingMessage = document.querySelector(
+        `.image-job-pending[data-image-job-id="${CSS.escape(jobId)}"]`
+    );
+    const editToken = pendingMessage && pendingMessage.dataset.imageEditToken;
+    if (editToken) {
+        const editButton = document.querySelector(
+            `.image-edit-inline[data-image-token="${CSS.escape(editToken)}"] .image-edit-inline-submit`
+        );
+        if (editButton) {
+            editButton.disabled = false;
+            editButton.textContent = "继续生成";
+        }
+    }
     push_data_to_gradio_component(jobId, "drawing_job_id", "str");
     click_drawing_result_when_ready(jobId);
 }
+
+function prepare_image_edit(token) {
+    if (!token) {
+        return;
+    }
+    push_data_to_gradio_component(token, "drawing_edit_token", "str");
+    document.querySelectorAll(".image-edit-inline").forEach(editor => {
+        if (editor.dataset.imageToken === token) {
+            editor.hidden = false;
+            const input = editor.querySelector(".image-edit-inline-input");
+            if (input) input.focus();
+        }
+    });
+}
+
+function submit_image_edit_inline(button) {
+    if (!button || button.disabled) return;
+    const editor = button && button.closest(".image-edit-inline");
+    if (!editor) return;
+    const input = editor.querySelector(".image-edit-inline-input");
+    const prompt = input && input.value.trim();
+    const token = editor.dataset.imageToken;
+    if (!prompt || !token) return;
+    button.disabled = true;
+    button.textContent = "处理中…";
+    push_data_to_gradio_component(token, "drawing_edit_token", "str");
+    push_data_to_gradio_component(prompt, "drawing_continue_prompt", "str");
+    const continueButton = document.getElementById("drawing_continue_btn");
+    if (continueButton) setTimeout(() => continueButton.click(), 80);
+}
+
+document.addEventListener("keydown", event => {
+    if (event.key !== "Enter" || !event.ctrlKey || !event.target.matches?.(".image-edit-inline-input")) return;
+    event.preventDefault();
+    submit_image_edit_inline(event.target.closest(".image-edit-inline")?.querySelector(".image-edit-inline-submit"));
+});
+
+document.addEventListener("click", event => {
+    const submitButton = event.composedPath
+        ? event.composedPath().find(element => element.matches && element.matches(".image-edit-inline-submit"))
+        : event.target.closest && event.target.closest(".image-edit-inline-submit");
+    if (submitButton) {
+        event.preventDefault();
+        event.stopPropagation();
+        submit_image_edit_inline(submitButton);
+    }
+});
 
 async function cancel_image_job(jobId, button) {
     if (!jobId) {
@@ -158,6 +218,14 @@ document.addEventListener("click", event => {
         ? event.composedPath().find(element => element.matches && element.matches(".image-job-cancel"))
         : event.target.closest && event.target.closest(".image-job-cancel");
     if (!button) {
+        const editButton = event.composedPath
+            ? event.composedPath().find(element => element.matches && element.matches(".image-edit-trigger"))
+            : event.target.closest && event.target.closest(".image-edit-trigger");
+        if (editButton) {
+            event.preventDefault();
+            event.stopPropagation();
+            prepare_image_edit(editButton.dataset.imageToken);
+        }
         return;
     }
     event.preventDefault();
@@ -217,7 +285,8 @@ function start_image_job_event_stream(jobId) {
         if (source.readyState === EventSource.CLOSED || consecutiveErrors >= 3) {
             source.close();
             delete imageJobEventSources[jobId];
-            forget_image_job(jobId);
+            // Keep the recovery record: the server-side job may already be
+            // complete and a page refresh should be able to resume it.
             set_drawing_generate_button_disabled(false);
         }
     };

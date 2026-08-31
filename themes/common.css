@@ -488,10 +488,9 @@
     box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5) !important;
 }
 
-/* Gradio下拉菜单的通用z-index修复 */
-.gr-dropdown .options,
-.gr-dropdown .svelte-1y5xaxi,
-.svelte-1y5xaxi {
+/* 提交菜单需要浮在聊天区域上方；其他下拉框保持 Gradio 默认定位。 */
+#gpt-submit-dropdown .options,
+#gpt-submit-dropdown .svelte-1y5xaxi {
     z-index: 9999 !important;
     position: fixed !important;
 }
@@ -1092,6 +1091,150 @@
     cursor: wait;
     opacity: 0.6;
     transform: none;
+}
+
+.image-edit-trigger {
+    margin-left: 0;
+}
+
+.image-result-actions {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.55rem;
+    margin-top: 0.55rem;
+}
+
+.image-result-download,
+.image-edit-trigger {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    box-sizing: border-box;
+    width: 6.2rem;
+    height: 2.1rem;
+    border-radius: 0.45rem;
+    font-size: 0.86em;
+    font-weight: 600;
+    line-height: 1;
+    text-decoration: none !important;
+    cursor: pointer;
+    transition: background 0.18s ease, border-color 0.18s ease, transform 0.18s ease;
+}
+
+.image-result-download {
+    border: 1px solid rgba(148, 163, 184, 0.55);
+    background: rgba(71, 85, 105, 0.4);
+    color: #e2e8f0;
+}
+
+.image-edit-trigger {
+    border: 1px solid rgba(125, 211, 252, 0.65);
+    background: rgba(14, 116, 144, 0.26);
+    color: #bae6fd;
+}
+
+.image-result-download:hover,
+.image-edit-trigger:hover {
+    transform: translateY(-1px);
+}
+
+.image-edit-inline {
+    align-items: center;
+    gap: 0.55rem;
+    margin-top: 0.7rem;
+    max-width: 42rem;
+}
+
+.image-edit-inline:not([hidden]) {
+    display: flex;
+}
+
+.image-edit-inline-input {
+    flex: 1 1 auto;
+    min-width: 0;
+    min-height: 5.5rem;
+    box-sizing: border-box;
+    border: 1px solid rgba(71, 85, 105, 0.95) !important;
+    border-radius: 0.45rem;
+    background: #1f2937 !important;
+    color: #f8fafc !important;
+    font: inherit;
+    line-height: 1.5;
+    padding: 0.7rem 0.8rem;
+    outline: none;
+    resize: vertical;
+    box-shadow: inset 0 1px 2px rgba(15, 23, 42, 0.28);
+}
+
+.image-edit-inline-input::placeholder {
+    color: #94a3b8 !important;
+    opacity: 1;
+}
+
+.image-edit-inline-input:focus {
+    border-color: rgba(125, 211, 252, 0.9) !important;
+    box-shadow: 0 0 0 2px rgba(56, 189, 248, 0.16), inset 0 1px 2px rgba(15, 23, 42, 0.28);
+}
+
+.image-edit-inline-submit {
+    flex: 0 0 6.2rem;
+    height: 2.1rem;
+    border: 1px solid rgba(125, 211, 252, 0.65) !important;
+    border-radius: 0.45rem;
+    background: rgba(14, 116, 144, 0.26) !important;
+    color: #bae6fd !important;
+    font: inherit;
+    font-size: 0.88em;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.18s ease, border-color 0.18s ease, transform 0.18s ease;
+}
+
+.image-edit-inline-submit:hover:not(:disabled) {
+    border-color: rgba(186, 230, 253, 0.95) !important;
+    background: rgba(14, 116, 144, 0.52) !important;
+    transform: translateY(-1px);
+}
+
+.image-edit-inline-submit:disabled {
+    cursor: wait;
+    opacity: 0.65;
+}
+
+.image-result-download:hover {
+    border-color: rgba(203, 213, 225, 0.9);
+    background: rgba(100, 116, 139, 0.58);
+}
+
+.image-edit-trigger:hover {
+    border-color: rgba(125, 211, 252, 0.9);
+    background: rgba(14, 116, 144, 0.3);
+}
+
+/* 图片模型下拉框使用组件自身定位，避免被全局浮动菜单样式顶到页面顶部。 */
+#drawing_model {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+#drawing_refresh_models_btn {
+    flex: 0 0 9rem;
+}
+
+#drawing_model .options,
+#drawing_model .dropdown-options,
+#drawing_model ul {
+    position: absolute !important;
+    z-index: 10000 !important;
+    max-height: 18rem !important;
+    overflow-y: auto !important;
+    min-width: 16rem !important;
+}
+
+#drawing_model .options li,
+#drawing_model .dropdown-options li,
+#drawing_model ul li {
+    white-space: nowrap !important;
 }
 
 .message_tail {

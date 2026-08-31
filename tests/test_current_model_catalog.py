@@ -18,6 +18,7 @@ from request_llms.model_provider import (
     infer_model_provider,
     models_for_provider,
 )
+from shared_utils.key_pattern_manager import select_api_key, select_image_api_key
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -34,6 +35,48 @@ def read_config_assignment(name):
 
 
 class CurrentModelCatalogTests(unittest.TestCase):
+    def test_openrouter_image_model_uses_only_openrouter_key(self):
+        openai_key = "sk-" + "a" * 48
+        openrouter_key = "sk-or-v1-" + "b" * 64
+        self.assertEqual(
+            select_api_key(f"{openai_key},{openrouter_key}", "openrouter-flux"),
+            openrouter_key,
+        )
+
+    def test_openrouter_prefix_matching_is_case_insensitive(self):
+        openrouter_key = "sk-or-v1-" + "b" * 64
+        self.assertEqual(
+            select_api_key(openrouter_key, "OpenRouter-flux"),
+            openrouter_key,
+        )
+
+    def test_image_key_prefers_max_api_opaque_token_in_mixed_config(self):
+        opaque_token = "max-api-private-token"
+        openrouter_key = "sk-or-v1-" + "b" * 64
+        self.assertEqual(
+            select_image_api_key(f"{openrouter_key},{opaque_token}", "gpt-image-2"),
+            opaque_token,
+        )
+
+    def test_image_key_rejects_blank_configuration(self):
+        with self.assertRaisesRegex(RuntimeError, "未配置图片 API Key"):
+            select_image_api_key("  ", "gpt-image-2")
+
+    def test_image_models_use_opaque_max_api_tokens_without_text_routing(self):
+        image_models = {
+            "gemini-2.5-flash-image",
+            "gemini-3-pro-image-preview",
+            "gemini-3.1-flash-image-preview-4k",
+            "gpt-image-1.5",
+            "gpt-image-2-4k-auto",
+            "grok-4.2-image",
+            "qwen-image-3.0-pro",
+        }
+        opaque_token = "max-api-token-without-a-legacy-prefix"
+        for model in image_models:
+            with self.subTest(model=model):
+                self.assertEqual(select_image_api_key(opaque_token, model), opaque_token)
+
     def test_expected_current_models_are_registered(self):
         expected = {
             "openai": {"gpt-5.6", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"},
