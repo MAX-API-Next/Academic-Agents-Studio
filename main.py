@@ -89,14 +89,18 @@ def archive_drawing_upload(source, owner):
     return destination
 
 
-def build_drawing_pending_message(job_id, model):
+def build_drawing_pending_message(job_id, model, edit_token=None):
     """Render the pending image job with its spinner and cancellation control."""
     import html
 
     safe_job_id = html.escape(str(job_id), quote=True)
     safe_model = html.escape(str(model), quote=True)
+    edit_attribute = (
+        f' data-image-edit-token="{html.escape(edit_token, quote=True)}"'
+        if edit_token else ""
+    )
     return (
-        f'<div class="image-job-pending" data-image-job-id="{safe_job_id}">'
+        f'<div class="image-job-pending" data-image-job-id="{safe_job_id}"{edit_attribute}>'
         '<span class="image-job-spinner" aria-hidden="true"></span>'
         f'<span class="image-job-pending-text">正在通过 AIOAGI 的 {safe_model} 后台生成图片，请稍候……</span>'
         f'<button type="button" class="image-job-cancel" '
@@ -628,7 +632,10 @@ def main():
                 chatbot_value.append([prompt, f"[Local Message] 图片任务提交失败：{html.escape(str(exc))}"])
                 return cookies_value, chatbot_value, history_value, "后台图片任务已满，请稍后重试", "", gr.update(interactive=True)
             chatbot_value = list(chatbot_value or [])
-            chatbot_value.append([prompt, build_drawing_pending_message(job.job_id, model)])
+            chatbot_value.append([
+                prompt,
+                build_drawing_pending_message(job.job_id, model, edit_token),
+            ])
             return cookies_value, chatbot_value, history_value, "图片编辑任务已提交，正在后台处理", job.job_id, gr.update(interactive=False)
 
         def receive_drawing_job(

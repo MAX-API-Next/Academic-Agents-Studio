@@ -156,6 +156,14 @@ class DrawingAreaTests(unittest.TestCase):
         self.assertIn("image-job-cancel", pending)
         self.assertIn("停止", pending)
 
+    def test_pending_edit_message_binds_its_edit_token(self):
+        pending = build_drawing_pending_message(
+            "job-123",
+            "gpt-image-2",
+            "edit-token",
+        )
+        self.assertIn('data-image-edit-token="edit-token"', pending)
+
     def test_image_job_manager_signals_completion_without_polling(self):
         manager = ImageJobManager(max_workers=1)
         job = manager.submit(owner="tester", prompt="draw", work=lambda: "image")

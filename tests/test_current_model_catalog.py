@@ -43,6 +43,13 @@ class CurrentModelCatalogTests(unittest.TestCase):
             openrouter_key,
         )
 
+    def test_openrouter_prefix_matching_is_case_insensitive(self):
+        openrouter_key = "sk-or-v1-" + "b" * 64
+        self.assertEqual(
+            select_api_key(openrouter_key, "OpenRouter-flux"),
+            openrouter_key,
+        )
+
     def test_image_key_prefers_max_api_opaque_token_in_mixed_config(self):
         opaque_token = "max-api-private-token"
         openrouter_key = "sk-or-v1-" + "b" * 64

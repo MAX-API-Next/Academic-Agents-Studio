@@ -109,10 +109,19 @@ function complete_image_job_event(jobId) {
         return;
     }
     imageJobTerminalEvents[jobId] = true;
-    document.querySelectorAll(".image-edit-inline-submit:disabled").forEach(button => {
-        button.disabled = false;
-        button.textContent = "继续生成";
-    });
+    const pendingMessage = document.querySelector(
+        `.image-job-pending[data-image-job-id="${CSS.escape(jobId)}"]`
+    );
+    const editToken = pendingMessage && pendingMessage.dataset.imageEditToken;
+    if (editToken) {
+        const editButton = document.querySelector(
+            `.image-edit-inline[data-image-token="${CSS.escape(editToken)}"] .image-edit-inline-submit`
+        );
+        if (editButton) {
+            editButton.disabled = false;
+            editButton.textContent = "继续生成";
+        }
+    }
     push_data_to_gradio_component(jobId, "drawing_job_id", "str");
     click_drawing_result_when_ready(jobId);
 }

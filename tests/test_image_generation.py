@@ -65,8 +65,10 @@ class ImageGenerationClientTests(unittest.TestCase):
     def test_model_list_keeps_only_models_supported_by_images_endpoint(self):
         session = FakeSession(get_response=FakeResponse({
             "data": [
+                {"id": "gpt-image-1.5", "supported_endpoint_types": ["openai"]},
                 {"id": "gpt-image-2", "supported_endpoint_types": ["openai"]},
                 {"id": "gpt-image-2-4k", "supported_endpoint_types": ["openai"]},
+                {"id": "gpt-image-2-4k-auto", "supported_endpoint_types": ["openai"]},
                 {"id": "gpt-image-1", "supported_endpoint_types": ["image-generation", "openai"]},
                 {"id": "qwen-image-3.0", "supported_endpoint_types": ["image-generation"]},
                 {"id": "gemini-2.5-flash-image-preview", "supported_endpoint_types": ["openai", "gemini"]},
@@ -78,7 +80,12 @@ class ImageGenerationClientTests(unittest.TestCase):
             endpoint="https://api.aiearth.dev/v1/images/generations",
             session=session,
         )
-        self.assertEqual(models, ["gpt-image-2", "gpt-image-2-4k"])
+        self.assertEqual(models, [
+            "gpt-image-1.5",
+            "gpt-image-2",
+            "gpt-image-2-4k",
+            "gpt-image-2-4k-auto",
+        ])
         self.assertEqual(session.get_call[0], "https://api.aiearth.dev/v1/models")
 
     def test_multipart_edit_sends_model_and_gpt_image_options(self):
