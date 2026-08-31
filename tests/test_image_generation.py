@@ -1,6 +1,7 @@
 import base64
 import json
 import os
+import re
 import tempfile
 import threading
 import unittest
@@ -11,9 +12,11 @@ from mcp_servers.image_generation_tool import (
     AcademicImageGenerationTool,
     format_academic_image_result,
 )
+from shared_utils.image_edit_authorizations import image_edit_authorizations
 from shared_utils.image_generation import (
     ImageGenerationCancelled,
     ImageGenerationError,
+    edit_image,
     generate_image,
     list_image_models,
 )
@@ -39,7 +42,7 @@ class FakeResponse:
 
 
 class FakeSession:
-    def __init__(self, post_response, get_response=None):
+    def __init__(self, post_response=None, get_response=None):
         self.post_response = post_response
         self.get_response = get_response
         self.post_call = None
@@ -60,7 +63,7 @@ class FakeSession:
 
 class ImageGenerationClientTests(unittest.TestCase):
     def test_model_list_keeps_only_models_supported_by_images_endpoint(self):
-        session = FakeSession(FakeResponse({
+        session = FakeSession(get_response=FakeResponse({
             "data": [
                 {"id": "gpt-image-2", "supported_endpoint_types": ["openai"]},
                 {"id": "gpt-image-2-4k", "supported_endpoint_types": ["openai"]},
@@ -77,6 +80,108 @@ class ImageGenerationClientTests(unittest.TestCase):
         )
         self.assertEqual(models, ["gpt-image-2", "gpt-image-2-4k"])
         self.assertEqual(session.get_call[0], "https://api.aiearth.dev/v1/models")
+
+    def test_multipart_edit_sends_model_and_gpt_image_options(self):
+        image_bytes = b"edited-image"
+        session = FakeSession(FakeResponse({
+            "data": [{"b64_json": base64.b64encode(image_bytes).decode("ascii")}],
+        }))
+        with tempfile.TemporaryDirectory() as output_dir:
+            source = os.path.join(output_dir, "source.png")
+            with open(source, "wb") as image_file:
+                image_file.write(b"source-image")
+            result = edit_image(
+                prompt="make the labels larger",
+                image_path=source,
+                api_key="secret",
+                output_dir=output_dir,
+                endpoint="https://api.aiearth.dev/v1/images/generations",
+                model="gpt-image-2-4k",
+                size="2048x1152",
+                quality="high",
+                output_format="webp",
+                session=session,
+            )
+
+            with open(result.file_path, "rb") as image_file:
+                self.assertEqual(image_file.read(), image_bytes)
+
+        url, request = session.post_call
+        self.assertEqual(url, "https://api.aiearth.dev/v1/images/edits")
+        self.assertEqual(request["data"]["model"], "gpt-image-2-4k")
+        self.assertEqual(request["data"]["size"], "2048x1152")
+        self.assertEqual(request["data"]["quality"], "high")
+        self.assertEqual(request["data"]["output_format"], "webp")
+        self.assertEqual(request["files"]["image"][1], b"source-image")
+        self.assertNotIn("Content-Type", request["headers"])
+
+    def test_qwen_edit_sends_base64_json_contract(self):
+        session = FakeSession(FakeResponse({
+            "data": [{"b64_json": base64.b64encode(b"edited").decode("ascii")}],
+        }))
+        with tempfile.TemporaryDirectory() as output_dir:
+            source = os.path.join(output_dir, "source.png")
+            with open(source, "wb") as image_file:
+                image_file.write(b"source-image")
+            edit_image(
+                prompt="use a blue background",
+                image_path=source,
+                api_key="secret",
+                output_dir=output_dir,
+                endpoint="https://api.aiearth.dev/v1/images/generations",
+                model="qwen-image-edit",
+                size="1024x1024",
+                session=session,
+            )
+
+        _, request = session.post_call
+        payload = request["json"]
+        self.assertEqual(payload["model"], "qwen-image-edit")
+        content = payload["input"]["messages"][0]["content"]
+        self.assertTrue(content[0]["image"].startswith("data:image/png;base64,"))
+        self.assertEqual(content[1]["text"], "use a blue background")
+        self.assertEqual(payload["parameters"]["size"], "1024x1024")
+        self.assertNotIn("files", request)
+
+    def test_edit_api_error_keeps_request_id(self):
+        session = FakeSession(FakeResponse(
+            {"error": {"message": "edit unavailable"}},
+            status_code=400,
+            headers={"x-request-id": "req-edit-error"},
+        ))
+        with tempfile.TemporaryDirectory() as output_dir:
+            source = os.path.join(output_dir, "source.png")
+            with open(source, "wb") as image_file:
+                image_file.write(b"source")
+            with self.assertRaisesRegex(ImageGenerationError, "req-edit-error"):
+                edit_image(
+                    prompt="edit",
+                    image_path=source,
+                    api_key="secret",
+                    output_dir=output_dir,
+                    endpoint="https://api.aiearth.dev/v1/images/generations",
+                    session=session,
+                )
+
+    def test_cancelled_edit_does_not_reach_provider(self):
+        cancel_event = threading.Event()
+        cancel_event.set()
+        session = FakeSession(FakeResponse({"data": []}))
+        with tempfile.TemporaryDirectory() as output_dir:
+            source = os.path.join(output_dir, "source.png")
+            with open(source, "wb") as image_file:
+                image_file.write(b"source")
+            with self.assertRaises(ImageGenerationCancelled):
+                edit_image(
+                    prompt="edit",
+                    image_path=source,
+                    api_key="secret",
+                    output_dir=output_dir,
+                    endpoint="https://api.aiearth.dev/v1/images/generations",
+                    session=session,
+                    cancel_event=cancel_event,
+                )
+        self.assertIsNone(session.post_call)
 
     def test_cancelled_request_does_not_reach_provider(self):
         session = FakeSession(FakeResponse({"data": []}))
@@ -295,6 +400,8 @@ class AcademicImageToolTests(unittest.TestCase):
         rendered = format_academic_image_result(result_text, tool=tool)
         self.assertIn('<img src="file=', rendered)
         self.assertIn("下载原图", rendered)
+        self.assertIn("data-image-token=", rendered)
+        self.assertNotIn("data-image-source=", rendered)
 
     def test_renderer_rejects_forged_path_for_another_user(self):
         session = FakeSession(FakeResponse({
@@ -316,6 +423,44 @@ class AcademicImageToolTests(unittest.TestCase):
             self.assertIsNone(
                 format_academic_image_result(json.dumps(result), tool=tool)
             )
+
+    def test_renderer_uses_server_owned_parameters_when_result_is_tampered(self):
+        session = FakeSession(FakeResponse({
+            "data": [{"b64_json": base64.b64encode(b"image").decode("ascii")}],
+        }))
+        tool = AcademicImageGenerationTool(
+            api_keys="sk-" + "a" * 48,
+            output_dir=self.output_dir.name,
+            session=session,
+        )
+        result = json.loads(tool.call({
+            "prompt": "illustration",
+            "model": "gpt-image-2-4k",
+            "size": "1536x1024",
+            "quality": "high",
+            "output_format": "webp",
+        }))
+        result.update({
+            "model": "attacker-model",
+            "size": "attacker-size",
+            "quality": "low",
+            "output_format": "jpeg",
+        })
+
+        rendered = format_academic_image_result(json.dumps(result), tool=tool)
+        token = re.search(r'data-image-token="([^"]+)"', rendered).group(1)
+        authorization = image_edit_authorizations.resolve(
+            token,
+            owner=self.output_dir.name,
+            output_root=self.output_dir.name,
+        )
+
+        self.assertIn("gpt-image-2-4k", rendered)
+        self.assertNotIn("attacker-model", rendered)
+        self.assertEqual(authorization.model, "gpt-image-2-4k")
+        self.assertEqual(authorization.size, "1536x1024")
+        self.assertEqual(authorization.quality, "high")
+        self.assertEqual(authorization.output_format, "webp")
 
     def test_renderer_rejects_unknown_file_in_current_user_directory(self):
         unknown_file = os.path.join(self.output_dir.name, "unknown.png")

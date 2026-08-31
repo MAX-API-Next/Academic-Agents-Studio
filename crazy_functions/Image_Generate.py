@@ -27,6 +27,7 @@ def generate_gpt_image_result(
     model=None,
     cancel_event=None,
 ):
+    """Generate an image with the selected model and current user's output path."""
     configured_model, endpoint, timeout, proxies = get_conf(
         "IMAGE_MODEL",
         "IMAGE_API_URL",
@@ -61,6 +62,7 @@ def edit_gpt_image_result(
     model=None,
     cancel_event=None,
 ):
+    """Edit an authorized image with the selected model and drawing options."""
     configured_model, endpoint, timeout, proxies = get_conf(
         "IMAGE_MODEL",
         "IMAGE_API_URL",
@@ -86,20 +88,22 @@ def edit_gpt_image_result(
     )
 
 
-def build_image_result_html(result):
+def build_image_result_html(result, edit_token):
+    """Build image result markup using an opaque server-issued edit token."""
     import html
 
     safe_path = html.escape(result.file_path, quote=True)
     safe_model = html.escape(result.model)
     safe_size = html.escape(result.size)
+    safe_edit_token = html.escape(edit_token, quote=True)
     return (
         f'<div align="center"><img src="file={safe_path}" alt="生成的图片"></div>'
         f'<br>模型：<code>{safe_model}</code>，尺寸：<code>{safe_size}</code>'
         f'<br><div class="image-result-actions">'
         f'<a class="image-result-download" href="file={safe_path}" target="_blank">下载原图</a>'
         f'<button type="button" class="image-edit-trigger" '
-        f'data-image-source="{safe_path}">继续编辑</button></div>'
-        f'<div class="image-edit-inline" data-image-source="{safe_path}" hidden>'
+        f'data-image-token="{safe_edit_token}">继续编辑</button></div>'
+        f'<div class="image-edit-inline" data-image-token="{safe_edit_token}" hidden>'
         '<textarea class="image-edit-inline-input" rows="3" '
         'placeholder="输入对当前图片的修改要求" aria-label="继续编辑提示词"></textarea>'
         '<button type="button" class="image-edit-inline-submit">继续生成</button>'
@@ -138,7 +142,20 @@ def 图片生成_GPT_IMAGE(prompt, llm_kwargs, plugin_kwargs, chatbot, history, 
         yield from update_ui(chatbot=chatbot, history=history, msg="图片生成失败")
         return
     promote_file_to_downloadzone(result.file_path, chatbot=chatbot)
-    image_result_html = build_image_result_html(result)
+    from shared_utils.image_edit_authorizations import image_edit_authorizations
+
+    owner = get_user(chatbot)
+    output_root = get_log_folder(owner, plugin_name="image_gen")
+    edit_token = image_edit_authorizations.issue(
+        owner=owner,
+        file_path=result.file_path,
+        output_root=output_root,
+        model=result.model,
+        size=result.size,
+        quality=result.quality,
+        output_format=result.output_format,
+    )
+    image_result_html = build_image_result_html(result, edit_token)
     # Replace the progress message instead of appending a second conversation item.
     # This keeps the streamed Gradio value stable and makes completion immediately visible.
     chatbot[-1] = [prompt, image_result_html]

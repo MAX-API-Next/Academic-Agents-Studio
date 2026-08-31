@@ -23,7 +23,6 @@ SUPPORTED_IMAGE_SIZES = {
 }
 SUPPORTED_IMAGE_QUALITIES = {"auto", "low", "medium", "high"}
 SUPPORTED_IMAGE_FORMATS = {"png", "jpeg", "webp"}
-_IMAGE_MODEL_MARKERS = ("image", "dall-e", "dall_e", "flux", "imagen", "wanx", "qwen-image")
 SUPPORTED_DRAWING_MODELS = {
     "gpt-image-1.5",
     "gpt-image-2",
@@ -177,9 +176,9 @@ def list_image_models(*, api_key, endpoint, timeout=30, proxies=None, session=No
     """Return image-capable models exposed by the current API key.
 
     MAX API exposes the key-filtered model list through the OpenAI-compatible
-    ``GET /v1/models`` endpoint.  A provider that does not expose that endpoint
-    is treated as unknown and returns an empty list so the UI can clearly
-    report that the current key has no discoverable image models.
+    ``GET /v1/models`` endpoint. Network failures and non-success responses,
+    including providers that do not expose that endpoint, raise
+    ``ImageGenerationError`` for the caller to report.
     """
     if not api_key or not api_key.strip():
         raise ImageGenerationError("未配置图片 API Key。")
@@ -206,7 +205,7 @@ def list_image_models(*, api_key, endpoint, timeout=30, proxies=None, session=No
         ]
     except (ValueError, TypeError) as exc:
         raise ImageGenerationError("图片模型列表返回格式不正确。") from exc
-    return sorted({model for model in model_ids if model and _looks_like_image_model(model)}, key=str.lower)
+    return sorted({model for model in model_ids if model}, key=str.lower)
 
 
 def edit_image(
@@ -322,50 +321,20 @@ def edit_image(
     return ImageGenerationResult(file_path, model, size, quality, output_format, request_id, source_url)
 
 
-def _looks_like_image_model(model):
-    lowered = model.lower()
-    return any(marker in lowered for marker in _IMAGE_MODEL_MARKERS)
-
-
 def _supports_images_generation(record):
-    """Check whether a model is suitable for this client's image endpoint.
-
-    MAX API may expose Gemini/Grok image-capable models through chat or Gemini
-    protocols while no `/v1/images/generations` channel is configured.  Those
-    models must not be offered by the drawing panel, which submits the OpenAI
-    Images request shape.
-    """
+    """Apply the deployment's explicit allowlist for the Images endpoint."""
     model = str(record.get("id", "")).strip()
-    if not model or not _looks_like_image_model(model):
-        return False
-    # The current AIOAGI/MAX API deployment has verified working channels for
-    # these GPT image models. Other catalog entries may be visible to the key
-    # while lacking a routable image channel or a compatible request schema.
-    if model.lower() not in SUPPORTED_DRAWING_MODELS:
-        return False
-    endpoint_types = record.get("supported_endpoint_types")
-    if not endpoint_types:
-        # Providers that do not advertise endpoint metadata retain legacy
-        # marker-based discovery for compatibility.
-        return True
-    if isinstance(endpoint_types, str):
-        endpoint_types = {endpoint_types.lower()}
-    else:
-        endpoint_types = {str(value).lower() for value in endpoint_types}
-    lowered = model.lower()
-    if "image-generation" in endpoint_types:
-        return True
-    if lowered.startswith("gpt-image"):
-        return True
-    return "openai" in endpoint_types and lowered.startswith(("dall-e", "flux", "imagen", "wanx"))
+    return model.lower() in SUPPORTED_DRAWING_MODELS
 
 
 def _raise_if_cancelled(cancel_event):
+    """Abort work promptly after a caller cancellation request."""
     if cancel_event is not None and cancel_event.is_set():
         raise ImageGenerationCancelled("图片生成已停止。")
 
 
 def _download_image(client, url, *, proxies, timeout, cancel_event=None):
+    """Download a provider-hosted image while honoring cancellation."""
     _raise_if_cancelled(cancel_event)
     try:
         response = client.get(url, proxies=proxies, timeout=timeout)
@@ -380,6 +349,7 @@ def _download_image(client, url, *, proxies, timeout, cancel_event=None):
 
 
 def _format_api_error(response, request_id):
+    """Extract a bounded provider error suitable for the user-facing result."""
     message = ""
     try:
         payload = response.json()

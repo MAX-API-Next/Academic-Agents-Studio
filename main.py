@@ -45,7 +45,10 @@ DRAWING_RESOLUTION_OPTIONS = (
 )
 DRAWING_QUALITY_OPTIONS = ("low", "medium", "high", "auto")
 DRAWING_FORMAT_OPTIONS = ("png", "jpeg", "webp")
+
+
 def build_drawing_plugin_kwargs(resolution, quality, output_format):
+    """Map drawing controls to the image plugin request fields."""
     return {
         "resolution": resolution,
         "quality": quality,
@@ -53,7 +56,41 @@ def build_drawing_plugin_kwargs(resolution, quality, output_format):
     }
 
 
+def archive_drawing_upload(source, owner):
+    """Copy a Gradio-created image file into the current user's image directory."""
+    import shutil
+    import tempfile
+    import uuid
+
+    from toolbox import get_log_folder
+
+    source_real = os.path.realpath(os.path.abspath(source or ""))
+    upload_root = os.path.realpath(os.path.abspath(
+        os.environ.get("GRADIO_TEMP_DIR")
+        or os.path.join(tempfile.gettempdir(), "gradio")
+    ))
+    try:
+        is_gradio_upload = os.path.commonpath([upload_root, source_real]) == upload_root
+    except ValueError:
+        is_gradio_upload = False
+    extension = os.path.splitext(source_real)[1].lower()
+    if not is_gradio_upload or not os.path.isfile(source_real):
+        raise ValueError("无法访问该附加图片")
+    if extension not in {".png", ".jpg", ".jpeg", ".webp"}:
+        raise ValueError("附加图片必须是 PNG、JPEG 或 WebP 文件")
+
+    output_root = get_log_folder(owner, plugin_name="image_gen")
+    os.makedirs(output_root, exist_ok=True)
+    destination = os.path.abspath(os.path.join(
+        output_root,
+        f"Upload-{uuid.uuid4().hex}{extension}",
+    ))
+    shutil.copyfile(source_real, destination)
+    return destination
+
+
 def build_drawing_pending_message(job_id, model):
+    """Render the pending image job with its spinner and cancellation control."""
     import html
 
     safe_job_id = html.escape(str(job_id), quote=True)
@@ -69,6 +106,7 @@ def build_drawing_pending_message(job_id, model):
 
 
 def replace_drawing_job_message(chatbot, job_id, prompt, reply):
+    """Replace the matching pending image message without disturbing later chat."""
     messages = list(chatbot or [])
     marker = f'data-image-job-id="{job_id}"'
     for index in range(len(messages) - 1, -1, -1):
@@ -251,8 +289,6 @@ def main():
                             choices=[],
                             value=None, interactive=True,
                             label="图片模型", elem_id="drawing_model",
-                            placeholder="请选择图片模型",
-                            scale=3,
                         ).style(container=False)
                         drawing_refresh_models_btn = gr.Button(
                             "刷新可用模型", elem_id="drawing_refresh_models_btn", scale=1, min_width=150,
@@ -292,7 +328,7 @@ def main():
                         source="upload",
                         elem_id="drawing_attached_image",
                     )
-                    drawing_edit_source = gr.Textbox(visible=False, elem_id="drawing_edit_source")
+                    drawing_edit_token = gr.Textbox(visible=False, elem_id="drawing_edit_token")
                     drawing_continue_prompt = gr.Textbox(
                         label="继续编辑提示词",
                         placeholder="输入对当前图片的修改要求",
@@ -431,18 +467,20 @@ def main():
             generate_gpt_image_result,
         )
         from shared_utils.image_generation import list_image_models
+        from shared_utils.image_edit_authorizations import image_edit_authorizations
         from shared_utils.image_jobs import image_job_manager
 
         image_model = get_conf("IMAGE_MODEL")
 
         def refresh_drawing_models(request: gr.Request, cookies_value):
+            """Refresh image choices for the current key with a short timeout."""
             owner_key = cookies_value.get("api_key", "") if isinstance(cookies_value, dict) else ""
             try:
                 model_key = select_image_api_key(owner_key, image_model)
                 models = list_image_models(
                     api_key=model_key,
                     endpoint=get_conf("IMAGE_API_URL"),
-                    timeout=min(get_conf("IMAGE_TIMEOUT_SECONDS"), 30),
+                    timeout=min(get_conf("IMAGE_TIMEOUT_SECONDS"), 5),
                     proxies=proxies,
                 )
             except Exception as exc:
@@ -455,6 +493,7 @@ def main():
             request: gr.Request, model, resolution, quality, output_format,
             attached_image, cookies_value, prompt, chatbot_value, history_value,
         ):
+            """Validate drawing inputs and enqueue a generation or upload-edit job."""
             prompt = (prompt or "").strip()
             if not model:
                 return (
@@ -471,14 +510,16 @@ def main():
                     "",
                     gr.update(interactive=True),
                 )
+            owner = request.username or cookies_value.get("user_name") or default_user_name
             if attached_image:
-                if not os.path.isfile(attached_image) or os.path.splitext(attached_image)[1].lower() not in {".png", ".jpg", ".jpeg", ".webp"}:
+                try:
+                    attached_image = archive_drawing_upload(attached_image, owner)
+                except ValueError as exc:
                     return (
                         cookies_value, chatbot_value, history_value,
-                        "附加图片必须是 PNG、JPEG 或 WebP 文件",
+                        str(exc),
                         "", gr.update(interactive=True),
                     )
-            owner = request.username or cookies_value.get("user_name") or default_user_name
             llm_kwargs = {"api_key": cookies_value.get("api_key", "")}
             plugin_kwargs = build_drawing_plugin_kwargs(
                 resolution,
@@ -488,6 +529,7 @@ def main():
             cancel_event = threading.Event()
 
             def run_image_generation():
+                """Execute the provider request in the background worker."""
                 if attached_image:
                     return edit_gpt_image_result(
                         prompt, attached_image, llm_kwargs, plugin_kwargs, owner,
@@ -540,37 +582,35 @@ def main():
 
         def submit_edit_job(
             request: gr.Request, model, resolution, quality, output_format,
-            edit_prompt, uploaded_image, edit_source,
+            edit_prompt, edit_token,
             cookies_value, chatbot_value, history_value,
         ):
+            """Resolve a server-issued edit token and enqueue an iterative edit."""
             prompt = (edit_prompt or "").strip()
-            if not model:
-                return cookies_value, chatbot_value, history_value, "尚未获取可用图片模型，请稍候或点击刷新可用模型", "", gr.update(interactive=True)
             owner = request.username or cookies_value.get("user_name") or default_user_name
-            selected_source = edit_source or uploaded_image or ""
-            source = selected_source.strip() if isinstance(selected_source, str) else ""
             if not prompt:
                 return cookies_value, chatbot_value, history_value, "编辑提示词不能为空", "", gr.update(interactive=True)
-            if not source or not os.path.isfile(source):
-                return cookies_value, chatbot_value, history_value, "请上传图片，或先点击生成结果旁的继续编辑", "", gr.update(interactive=True)
-            if os.path.splitext(source)[1].lower() not in {".png", ".jpg", ".jpeg", ".webp"}:
-                return cookies_value, chatbot_value, history_value, "仅支持 PNG、JPEG 或 WebP 图片", "", gr.update(interactive=True)
-            # A hidden value can be changed in the browser; generated-result
-            # paths must remain inside the current user's image directory.
-            if not edit_source:
-                output_root = os.path.realpath(os.path.abspath(get_log_folder(owner, plugin_name="image_gen")))
-                source_real = os.path.realpath(os.path.abspath(source))
-                try:
-                    is_owned = os.path.commonpath([output_root, source_real]) == output_root
-                except ValueError:
-                    is_owned = False
-                if not is_owned:
-                    return cookies_value, chatbot_value, history_value, "无法访问该图片", "", gr.update(interactive=True)
+            output_root = get_log_folder(owner, plugin_name="image_gen")
+            authorization = image_edit_authorizations.resolve(
+                edit_token,
+                owner=owner,
+                output_root=output_root,
+            )
+            if authorization is None:
+                return cookies_value, chatbot_value, history_value, "该图片的编辑授权无效或已过期", "", gr.update(interactive=True)
+            source = authorization.file_path
+            model = authorization.model or model
+            resolution = authorization.size or resolution
+            quality = authorization.quality or quality
+            output_format = authorization.output_format or output_format
+            if not model:
+                return cookies_value, chatbot_value, history_value, "该图片没有可用的模型信息", "", gr.update(interactive=True)
             llm_kwargs = {"api_key": cookies_value.get("api_key", "")}
             plugin_kwargs = build_drawing_plugin_kwargs(resolution, quality, output_format)
             cancel_event = threading.Event()
 
             def run_image_edit():
+                """Execute an authorized iterative edit in the background worker."""
                 return edit_gpt_image_result(
                     prompt, source, llm_kwargs, plugin_kwargs, owner,
                     model=model, cancel_event=cancel_event,
@@ -594,6 +634,7 @@ def main():
         def receive_drawing_job(
             request: gr.Request, job_id, cookies_value, chatbot_value, history_value,
         ):
+            """Render a terminal image job result for its owning user."""
             owner = request.username or cookies_value.get("user_name") or default_user_name
             job = image_job_manager.get(job_id, owner=owner)
             if job is None:
@@ -615,7 +656,17 @@ def main():
                     gr.update(interactive=False),
                 )
             if job.status == "completed":
-                reply = build_image_result_html(job.result)
+                output_root = get_log_folder(owner, plugin_name="image_gen")
+                edit_token = image_edit_authorizations.issue(
+                    owner=owner,
+                    file_path=job.result.file_path,
+                    output_root=output_root,
+                    model=job.result.model,
+                    size=job.result.size,
+                    quality=job.result.quality,
+                    output_format=job.result.output_format,
+                )
+                reply = build_image_result_html(job.result, edit_token)
                 status_message = "图片生成完成，可预览或下载原图"
             elif job.status == "cancelled":
                 reply = "已停止该任务"
@@ -668,19 +719,20 @@ def main():
             queue=False,
         )
         def on_drawing_model_changed(model):
+            """Show image model state without changing the chat model label."""
             model_text = model or "未选择"
-            return gr.update(label="绘画区-模型：" + model_text)
+            return "绘画区-模型：" + model_text
 
         drawing_model.select(
             on_drawing_model_changed,
             inputs=[drawing_model],
-            outputs=[chatbot],
+            outputs=[drawing_model_status],
         )
         drawing_edit_click_handle = drawing_continue_btn.click(
             submit_edit_job,
             inputs=[
                 drawing_model, drawing_resolution, drawing_quality, drawing_format,
-                drawing_continue_prompt, drawing_edit_image, drawing_edit_source,
+                drawing_continue_prompt, drawing_edit_token,
                 cookies, chatbot, history,
             ],
             outputs=[*output_combo, drawing_job_id, drawing_continue_btn],

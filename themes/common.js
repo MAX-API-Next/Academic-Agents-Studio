@@ -109,17 +109,21 @@ function complete_image_job_event(jobId) {
         return;
     }
     imageJobTerminalEvents[jobId] = true;
+    document.querySelectorAll(".image-edit-inline-submit:disabled").forEach(button => {
+        button.disabled = false;
+        button.textContent = "继续生成";
+    });
     push_data_to_gradio_component(jobId, "drawing_job_id", "str");
     click_drawing_result_when_ready(jobId);
 }
 
-function prepare_image_edit(source) {
-    if (!source) {
+function prepare_image_edit(token) {
+    if (!token) {
         return;
     }
-    push_data_to_gradio_component(source, "drawing_edit_source", "str");
+    push_data_to_gradio_component(token, "drawing_edit_token", "str");
     document.querySelectorAll(".image-edit-inline").forEach(editor => {
-        if (editor.dataset.imageSource === source) {
+        if (editor.dataset.imageToken === token) {
             editor.hidden = false;
             const input = editor.querySelector(".image-edit-inline-input");
             if (input) input.focus();
@@ -128,18 +132,19 @@ function prepare_image_edit(source) {
 }
 
 function submit_image_edit_inline(button) {
+    if (!button || button.disabled) return;
     const editor = button && button.closest(".image-edit-inline");
     if (!editor) return;
     const input = editor.querySelector(".image-edit-inline-input");
     const prompt = input && input.value.trim();
-    const source = editor.dataset.imageSource;
-    if (!prompt || !source) return;
-    push_data_to_gradio_component(source, "drawing_edit_source", "str");
+    const token = editor.dataset.imageToken;
+    if (!prompt || !token) return;
+    button.disabled = true;
+    button.textContent = "处理中…";
+    push_data_to_gradio_component(token, "drawing_edit_token", "str");
     push_data_to_gradio_component(prompt, "drawing_continue_prompt", "str");
     const continueButton = document.getElementById("drawing_continue_btn");
     if (continueButton) setTimeout(() => continueButton.click(), 80);
-    button.disabled = true;
-    button.textContent = "处理中…";
 }
 
 document.addEventListener("keydown", event => {
@@ -210,7 +215,7 @@ document.addEventListener("click", event => {
         if (editButton) {
             event.preventDefault();
             event.stopPropagation();
-            prepare_image_edit(editButton.dataset.imageSource);
+            prepare_image_edit(editButton.dataset.imageToken);
         }
         return;
     }

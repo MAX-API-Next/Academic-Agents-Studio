@@ -7,6 +7,7 @@ import threading
 from qwen_agent.tools.base import BaseTool
 
 from shared_utils.image_generation import ImageGenerationError, generate_image
+from shared_utils.image_edit_authorizations import image_edit_authorizations
 from shared_utils.config_loader import get_conf
 from shared_utils.key_pattern_manager import select_image_api_key
 
@@ -51,6 +52,7 @@ class AcademicImageGenerationTool(BaseTool):
     }
 
     def __init__(self, *, api_keys, chatbot=None, output_dir=None, session=None):
+        """Initialize a session-scoped image tool and render authorization map."""
         super().__init__()
         self.api_keys = api_keys or ""
         self.chatbot = chatbot
@@ -60,6 +62,7 @@ class AcademicImageGenerationTool(BaseTool):
         self._render_authorizations_lock = threading.Lock()
 
     def call(self, params, **kwargs):
+        """Generate one image and return a locally authorized structured result."""
         params = self._verify_json_format_args(params)
         output_dir = self._get_output_directory()
         model, endpoint, timeout, proxies = get_conf(
@@ -91,7 +94,14 @@ class AcademicImageGenerationTool(BaseTool):
 
         render_token = secrets.token_urlsafe(32)
         with self._render_authorizations_lock:
-            self._render_authorizations[render_token] = (file_path, output_root)
+            self._render_authorizations[render_token] = {
+                "file_path": file_path,
+                "output_root": output_root,
+                "model": result.model,
+                "size": result.size,
+                "quality": result.quality,
+                "output_format": result.output_format,
+            }
 
         return json.dumps(
             {
@@ -108,6 +118,7 @@ class AcademicImageGenerationTool(BaseTool):
         )
 
     def _get_output_directory(self):
+        """Resolve the explicit or current user's image output directory."""
         if self.output_dir is not None:
             return self.output_dir
         if self.chatbot is None:
@@ -119,6 +130,7 @@ class AcademicImageGenerationTool(BaseTool):
 
     @staticmethod
     def _resolve_generated_file(file_path, output_dir):
+        """Reject generated files outside the expected output directory."""
         output_root = os.path.realpath(os.path.abspath(output_dir))
         resolved_file = os.path.realpath(os.path.abspath(file_path))
         try:
@@ -140,7 +152,8 @@ class AcademicImageGenerationTool(BaseTool):
         if authorization is None:
             return None
 
-        expected_file, output_root = authorization
+        expected_file = authorization["file_path"]
+        output_root = authorization["output_root"]
         candidate = os.path.realpath(os.path.abspath(str(result.get("file_path", ""))))
         try:
             is_inside_output = os.path.commonpath([output_root, candidate]) == output_root
@@ -148,7 +161,15 @@ class AcademicImageGenerationTool(BaseTool):
             is_inside_output = False
         if candidate != expected_file or not is_inside_output or not os.path.isfile(candidate):
             return None
-        return candidate
+        return authorization
+
+    def get_authorization_owner(self, output_root):
+        """Return the session owner used to bind a rendered image edit token."""
+        if self.chatbot is None:
+            return output_root
+        from toolbox import get_user
+
+        return get_user(self.chatbot)
 
 
 def format_academic_image_result(result_text, tool=None):
@@ -162,21 +183,34 @@ def format_academic_image_result(result_text, tool=None):
     if not isinstance(tool, AcademicImageGenerationTool):
         return None
 
-    file_path = tool.consume_render_authorization(result)
-    if file_path is None:
+    authorization = tool.consume_render_authorization(result)
+    if authorization is None:
         return None
+    file_path = authorization["file_path"]
+    output_root = authorization["output_root"]
+
+    edit_token = image_edit_authorizations.issue(
+        owner=tool.get_authorization_owner(output_root),
+        file_path=file_path,
+        output_root=output_root,
+        model=authorization["model"],
+        size=authorization["size"],
+        quality=authorization["quality"],
+        output_format=authorization["output_format"],
+    )
 
     safe_path = html.escape(file_path, quote=True)
-    safe_model = html.escape(str(result.get("model", "gpt-image-2")))
-    safe_size = html.escape(str(result.get("size", "auto")))
+    safe_model = html.escape(str(authorization["model"]))
+    safe_size = html.escape(str(authorization["size"]))
+    safe_edit_token = html.escape(edit_token, quote=True)
     return (
         f'<div align="center"><img src="file={safe_path}" alt="生成的学术插图"></div>'
         f'<br>模型：<code>{safe_model}</code>，尺寸：<code>{safe_size}</code>'
         f'<br><div class="image-result-actions">'
         f'<a class="image-result-download" href="file={safe_path}" target="_blank">下载原图</a>'
         f'<button type="button" class="image-edit-trigger" '
-        f'data-image-source="{safe_path}">继续编辑</button></div>'
-        f'<div class="image-edit-inline" data-image-source="{safe_path}" hidden>'
+        f'data-image-token="{safe_edit_token}">继续编辑</button></div>'
+        f'<div class="image-edit-inline" data-image-token="{safe_edit_token}" hidden>'
         '<textarea class="image-edit-inline-input" rows="3" '
         'placeholder="输入对当前图片的修改要求" aria-label="继续编辑提示词"></textarea>'
         '<button type="button" class="image-edit-inline-submit">继续生成</button>'

@@ -18,7 +18,7 @@ from request_llms.model_provider import (
     infer_model_provider,
     models_for_provider,
 )
-from shared_utils.key_pattern_manager import select_image_api_key
+from shared_utils.key_pattern_manager import select_api_key, select_image_api_key
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -35,6 +35,26 @@ def read_config_assignment(name):
 
 
 class CurrentModelCatalogTests(unittest.TestCase):
+    def test_openrouter_image_model_uses_only_openrouter_key(self):
+        openai_key = "sk-" + "a" * 48
+        openrouter_key = "sk-or-v1-" + "b" * 64
+        self.assertEqual(
+            select_api_key(f"{openai_key},{openrouter_key}", "openrouter-flux"),
+            openrouter_key,
+        )
+
+    def test_image_key_prefers_max_api_opaque_token_in_mixed_config(self):
+        opaque_token = "max-api-private-token"
+        openrouter_key = "sk-or-v1-" + "b" * 64
+        self.assertEqual(
+            select_image_api_key(f"{openrouter_key},{opaque_token}", "gpt-image-2"),
+            opaque_token,
+        )
+
+    def test_image_key_rejects_blank_configuration(self):
+        with self.assertRaisesRegex(RuntimeError, "未配置图片 API Key"):
+            select_image_api_key("  ", "gpt-image-2")
+
     def test_image_models_use_opaque_max_api_tokens_without_text_routing(self):
         image_models = {
             "gemini-2.5-flash-image",

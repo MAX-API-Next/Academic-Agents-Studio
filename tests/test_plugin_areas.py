@@ -13,6 +13,7 @@ from main import (
     DRAWING_FORMAT_OPTIONS,
     DRAWING_QUALITY_OPTIONS,
     DRAWING_RESOLUTION_OPTIONS,
+    archive_drawing_upload,
     build_drawing_pending_message,
     build_drawing_plugin_kwargs,
     replace_drawing_job_message,
@@ -30,6 +31,31 @@ from shared_utils.image_jobs import ImageJobManager
 
 
 class DrawingAreaTests(unittest.TestCase):
+    def test_drawing_upload_is_archived_inside_user_output_directory(self):
+        with tempfile.TemporaryDirectory() as gradio_root:
+            with tempfile.TemporaryDirectory() as output_root:
+                source = os.path.join(gradio_root, "upload.png")
+                with open(source, "wb") as image_file:
+                    image_file.write(b"image")
+                with (
+                    patch.dict(os.environ, {"GRADIO_TEMP_DIR": gradio_root}),
+                    patch("toolbox.get_log_folder", return_value=output_root),
+                ):
+                    archived = archive_drawing_upload(source, "alice")
+
+                self.assertEqual(
+                    os.path.commonpath([output_root, archived]),
+                    output_root,
+                )
+                self.assertTrue(os.path.isfile(archived))
+
+    def test_drawing_upload_rejects_path_outside_gradio_directory(self):
+        with tempfile.TemporaryDirectory() as gradio_root:
+            with tempfile.NamedTemporaryFile(suffix=".png") as outside_file:
+                with patch.dict(os.environ, {"GRADIO_TEMP_DIR": gradio_root}):
+                    with self.assertRaisesRegex(ValueError, "无法访问"):
+                        archive_drawing_upload(outside_file.name, "alice")
+
     def test_gpt_image_entry_is_not_registered_as_a_function_plugin(self):
         plugin_name = "🎨学术插图 / 图片生成（GPT Image 2）"
         plugins = get_crazy_functions()
@@ -53,11 +79,16 @@ class DrawingAreaTests(unittest.TestCase):
 
     def test_image_plugin_replaces_progress_message_with_final_image(self):
         with tempfile.TemporaryDirectory() as temporary_log_dir:
-            with tempfile.NamedTemporaryFile(suffix=".png") as image_file:
+            with tempfile.NamedTemporaryFile(
+                suffix=".png",
+                dir=temporary_log_dir,
+            ) as image_file:
                 result = SimpleNamespace(
                     file_path=image_file.name,
                     model="gpt-image-2",
                     size="1024x1024",
+                    quality="medium",
+                    output_format="png",
                 )
                 chatbot = ChatBotWithCookies({"user_name": default_user_name})
                 with (

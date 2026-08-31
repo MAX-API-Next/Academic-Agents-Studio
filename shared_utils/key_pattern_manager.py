@@ -89,31 +89,29 @@ def is_o_family_for_openai(llm_model):
     return False
 
 def select_api_key(keys, llm_model):
+    """Select a key whose provider matches the requested model prefix."""
     import random
     avail_key_list = []
     key_list = keys.split(',')
+    model_lower = llm_model.lower()
 
-    if llm_model.startswith('gpt-') or llm_model.startswith('chatgpt-') or \
-       llm_model.startswith('aioagi-') or is_o_family_for_openai(llm_model) or \
-       any(marker in llm_model.lower() for marker in ('dall-e', 'dall_e', 'flux', 'imagen', 'wanx', 'qwen-image')):
-        for k in key_list:
-            if is_openai_api_key(k): avail_key_list.append(k)
-
-    if llm_model.startswith('api2d-'):
-        for k in key_list:
-            if is_api2d_key(k): avail_key_list.append(k)
-
-    if llm_model.startswith('azure-'):
-        for k in key_list:
-            if is_azure_api_key(k): avail_key_list.append(k)
-
-    if llm_model.startswith('cohere-'):
-        for k in key_list:
-            if is_cohere_api_key(k): avail_key_list.append(k)
-    
     if llm_model.startswith('openrouter-'):
         for k in key_list:
             if is_openroute_api_key(k): avail_key_list.append(k)
+    elif llm_model.startswith('api2d-'):
+        for k in key_list:
+            if is_api2d_key(k): avail_key_list.append(k)
+    elif llm_model.startswith('azure-'):
+        for k in key_list:
+            if is_azure_api_key(k): avail_key_list.append(k)
+    elif llm_model.startswith('cohere-'):
+        for k in key_list:
+            if is_cohere_api_key(k): avail_key_list.append(k)
+    elif llm_model.startswith('gpt-') or llm_model.startswith('chatgpt-') or \
+         llm_model.startswith('aioagi-') or is_o_family_for_openai(llm_model) or \
+         any(marker in model_lower for marker in ('dall-e', 'dall_e', 'flux', 'imagen', 'wanx', 'qwen-image')):
+        for k in key_list:
+            if is_openai_api_key(k): avail_key_list.append(k)
 
     if len(avail_key_list) == 0:
         raise RuntimeError(f"您提供的api-key不满足要求，不包含任何可用于{llm_model}的api-key。您可能选择了错误的模型或请求源（左上角更换模型菜单中可切换openai,azure,claude,cohere等请求源）。")
@@ -136,14 +134,20 @@ def select_image_api_key(keys, image_model="image"):
     key_list = [key.strip() for key in (keys or "").split(",") if key.strip()]
     if not key_list:
         raise RuntimeError("未配置图片 API Key，请先在设置中填写兼容渠道密钥。")
-    recognized = [
+    preferred = [
         key for key in key_list
         if is_openai_api_key(key) or is_api2d_key(key) or is_azure_api_key(key)
-        or is_openroute_api_key(key) or is_cohere_api_key(key)
+    ]
+    opaque = [
+        key for key in key_list
+        if not (
+            is_openai_api_key(key) or is_api2d_key(key) or is_azure_api_key(key)
+            or is_openroute_api_key(key) or is_cohere_api_key(key)
+        )
     ]
     # MAX API tokens and privately issued keys may not match legacy regexes.
-    # Passing them through produces the provider's precise 401/403 response.
-    return random.choice(recognized or key_list)
+    # Prefer them over keys that are clearly tied to another provider.
+    return random.choice(opaque or preferred or key_list)
 
 
 def select_api_key_for_embed_models(keys, llm_model):
