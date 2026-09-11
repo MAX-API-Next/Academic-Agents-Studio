@@ -105,6 +105,8 @@ Supports academic scenarios including paper writing, literature analysis, code i
 
 Academic Agents Studio includes a dedicated Drawing panel for graphical abstracts, research workflow diagrams, conceptual figures, poster assets, and presentation illustrations. It calls image models through the MAX API / OpenAI-compatible Images API and runs generation as a background job so the normal chat callback is not held open.
 
+This release adds support for the `gpt-image-2.5` and `gpt-image-2.5-4k` image models. The panel still filters models automatically using the current API key and the models returned by the Images endpoint.
+
 ### How to use it
 
 1. Expand the **Drawing** panel in the interface.
@@ -115,6 +117,8 @@ Academic Agents Studio includes a dedicated Drawing panel for graphical abstract
 6. When complete, preview or download the image. Click **Continue Editing** beside the result, enter a multi-line edit prompt below that image, and click **Continue Generation**. The source image and its original model, resolution, quality, and format settings are reused for the new image.
 
 Supported options:
+
+- Image models: GPT Image models returned for the current key and supported by the Images endpoint, including `gpt-image-1.5`, `gpt-image-2`, `gpt-image-2-4k`, `gpt-image-2-4k-auto`, `gpt-image-2.5`, and `gpt-image-2.5-4k`; models without an available route are filtered automatically.
 
 - Resolution: `auto`, `1024x1024`, `1536x1024`, `1024x1536`, `2048x2048`, `2048x1152`, `3840x2160`, `2160x3840`
 - Quality: `low`, `medium`, `high`, `auto`

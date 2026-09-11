@@ -69,6 +69,8 @@ class ImageGenerationClientTests(unittest.TestCase):
                 {"id": "gpt-image-2", "supported_endpoint_types": ["openai"]},
                 {"id": "gpt-image-2-4k", "supported_endpoint_types": ["openai"]},
                 {"id": "gpt-image-2-4k-auto", "supported_endpoint_types": ["openai"]},
+                {"id": "gpt-image-2.5", "supported_endpoint_types": ["openai"]},
+                {"id": "gpt-image-2.5-4k", "supported_endpoint_types": ["openai"]},
                 {"id": "gpt-image-1", "supported_endpoint_types": ["image-generation", "openai"]},
                 {"id": "qwen-image-3.0", "supported_endpoint_types": ["image-generation"]},
                 {"id": "gemini-2.5-flash-image-preview", "supported_endpoint_types": ["openai", "gemini"]},
@@ -85,6 +87,8 @@ class ImageGenerationClientTests(unittest.TestCase):
             "gpt-image-2",
             "gpt-image-2-4k",
             "gpt-image-2-4k-auto",
+            "gpt-image-2.5",
+            "gpt-image-2.5-4k",
         ])
         self.assertEqual(session.get_call[0], "https://api.aiearth.dev/v1/models")
 
