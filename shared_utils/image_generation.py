@@ -28,6 +28,8 @@ SUPPORTED_DRAWING_MODELS = {
     "gpt-image-2",
     "gpt-image-2-4k",
     "gpt-image-2-4k-auto",
+    "gpt-image-2.5",
+    "gpt-image-2.5-4k",
 }
 
 
